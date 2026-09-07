@@ -34,6 +34,7 @@ src-tauri/gen/schemas
 src-tauri/onnxruntime/*.dylib
 src-tauri/tauri.dev.conf.json
 .gstack/
+.gg/
 
 # iOS (ios/)
 ios/App/Parley.xcodeproj
