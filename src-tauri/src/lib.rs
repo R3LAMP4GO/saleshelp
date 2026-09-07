@@ -1,8 +1,8 @@
 mod audio;
 mod ax_observe;
+mod call_state;
 mod capture;
 mod commands;
-mod call_state;
 mod diarize;
 mod history;
 mod hotkey;

@@ -491,9 +491,19 @@ describe("meeting lifecycle", () => {
     const s = useStore.getState();
     expect(s.meetingStatus).toBe("recording");
     expect(typeof s.meetingStartedAt).toBe("number");
+    expect(typeof s.meetingId).toBe("string");
     expect(s.segments).toEqual([]);
     expect(s.findings).toEqual([]);
     expect(s.speakerNames).toEqual({});
+  });
+
+  it("assigns a distinct stable identity to each meeting restart", () => {
+    useStore.getState().startMeeting();
+    const first = useStore.getState().meetingId;
+    useStore.getState().stopMeeting();
+    useStore.getState().startMeeting();
+
+    expect(useStore.getState().meetingId).not.toBe(first);
   });
 
   it("stopMeeting only flips the status", () => {

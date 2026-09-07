@@ -1,6 +1,6 @@
 import { useStore } from "../store";
 import type { TimelineEvent, TranscriptSegment } from "../types";
-import { newLotLiftCallState, persistLotLiftCallState, reduceLotLiftCallState, type CallStateEvent, type LotLiftCallState } from "./callState";
+import { LotLiftCallStateManager, type CallStateEvent } from "./callState";
 import { retrieveApprovedLotLiftResponse, type ApprovedLotLiftResponse } from "./objections";
 
 type CoachEvent = { response: ApprovedLotLiftResponse; state: CallStateEvent };
@@ -18,19 +18,31 @@ export function classifyLotLiftTurn(segment: TranscriptSegment, priorProspectLin
   };
 }
 
-let lastSegmentId = "";
-let callState: LotLiftCallState | null = null;
+const defaultCallStates = new LotLiftCallStateManager();
 
 /** Attach one deterministic, no-network reply path to finalized prospect turns. */
-export function initLotLiftCoach(): () => void {
-  return useStore.subscribe((state, previous) => {
+export function initLotLiftCoach(callStates = defaultCallStates): () => void {
+  let activeCallId: string | null = null;
+  const unsubscribe = useStore.subscribe((state, previous) => {
+    const meetingActive = state.meetingStatus === "recording" || state.meetingStatus === "paused";
+    const callId = meetingActive && state.meetingId ? `lotlift-${state.meetingId}` : null;
+    if (activeCallId && activeCallId !== callId) {
+      void callStates.retire(activeCallId);
+      activeCallId = null;
+    }
+    if (!callId) return;
+    activeCallId = callId;
+    callStates.activate(callId);
+
     const segment = state.segments[state.segments.length - 1];
     const previousSegment = previous.segments[previous.segments.length - 1];
-    if (!segment || segment === previousSegment || !segment.isFinal || segment.source !== "them" || segment.id === lastSegmentId) return;
-    lastSegmentId = segment.id;
+    if (!segment || segment === previousSegment || !segment.isFinal || segment.source !== "them") return;
     if (!state.settings.evaluations.some((evaluation) => evaluation.id.startsWith("lotlift-"))) return;
-    const event = classifyLotLiftTurn(segment, state.segments.filter((item) => item.id !== segment.id && item.source === "them").map((item) => item.text));
-    if (!event) return;
+    const event = classifyLotLiftTurn(
+      segment,
+      state.segments.filter((item) => item.id !== segment.id && item.source === "them").map((item) => item.text),
+    );
+    if (!event || !callStates.record(callId, segment.id, event.state)) return;
 
     const finding: TimelineEvent = {
       id: `lotlift-${segment.id}`,
@@ -55,11 +67,6 @@ export function initLotLiftCoach(): () => void {
       },
     });
     store.setSolutionFinding(finding.id);
-
-    const callId = `meeting-${state.meetingStartedAt ?? Date.now()}`;
-    callState = reduceLotLiftCallState(callState ?? newLotLiftCallState(callId), event.state);
-    void persistLotLiftCallState(callState).then((saved) => { callState = saved; }).catch(() => {
-      // Coaching remains available if storage is temporarily unavailable; no state is silently claimed saved.
-    });
   });
+  return unsubscribe;
 }

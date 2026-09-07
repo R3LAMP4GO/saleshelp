@@ -363,8 +363,20 @@ fn now_ms() -> u64 {
 /// Coarse read/write classification for the activity feed, by tool-name verb.
 fn tool_kind(name: &str) -> &'static str {
     const WRITE_VERBS: [&str; 14] = [
-        "upsert_", "delete_", "add_", "remove_", "check_", "set_", "update_", "rename_", "move_",
-        "share_", "copy_", "create_", "import_", "download_",
+        "upsert_",
+        "delete_",
+        "add_",
+        "remove_",
+        "check_",
+        "set_",
+        "update_",
+        "rename_",
+        "move_",
+        "share_",
+        "copy_",
+        "create_",
+        "import_",
+        "download_",
     ];
     if WRITE_VERBS.iter().any(|v| name.starts_with(v)) {
         "write"

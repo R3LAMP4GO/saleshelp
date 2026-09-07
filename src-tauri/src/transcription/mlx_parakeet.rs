@@ -9,7 +9,10 @@ use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::common::{connect_with_headers, drive_session, LevelMeter, SegmentBuilder, TranscribeConfig, LEVEL_EVENT, TRANSCRIPT_EVENT};
+use super::common::{
+    connect_with_headers, drive_session, LevelMeter, SegmentBuilder, TranscribeConfig, LEVEL_EVENT,
+    TRANSCRIPT_EVENT,
+};
 use super::ws::{self, Next, OnClose, WsRead, WsWrite};
 use crate::audio::resample::pcm_to_le_bytes;
 
@@ -29,14 +32,22 @@ struct MlxEvent {
     status: String,
 }
 
-async fn forward_audio(mut write: WsWrite, mut meter: LevelMeter, mut pcm_rx: UnboundedReceiver<Vec<i16>>) -> bool {
+async fn forward_audio(
+    mut write: WsWrite,
+    mut meter: LevelMeter,
+    mut pcm_rx: UnboundedReceiver<Vec<i16>>,
+) -> bool {
     let mut pending = Vec::with_capacity(VAD_FRAME_SAMPLES * 2);
     while let Some(chunk) = pcm_rx.recv().await {
         meter.push(&chunk);
         pending.extend(chunk);
         while pending.len() >= VAD_FRAME_SAMPLES {
             let frame: Vec<i16> = pending.drain(..VAD_FRAME_SAMPLES).collect();
-            if write.send(Message::Binary(pcm_to_le_bytes(&frame).into())).await.is_err() {
+            if write
+                .send(Message::Binary(pcm_to_le_bytes(&frame)))
+                .await
+                .is_err()
+            {
                 return false;
             }
         }
@@ -45,7 +56,11 @@ async fn forward_audio(mut write: WsWrite, mut meter: LevelMeter, mut pcm_rx: Un
     // final short tail preserves it instead of silently dropping speech.
     if !pending.is_empty() {
         pending.resize(VAD_FRAME_SAMPLES, 0);
-        if write.send(Message::Binary(pcm_to_le_bytes(&pending).into())).await.is_err() {
+        if write
+            .send(Message::Binary(pcm_to_le_bytes(&pending)))
+            .await
+            .is_err()
+        {
             return false;
         }
     }
@@ -60,7 +75,14 @@ async fn read_transcripts(app: AppHandle, source: &'static str, read: WsRead) ->
             return Ok(Next::Continue);
         };
         if !event.error.trim().is_empty() || event.status == "error" {
-            return Err(anyhow!("{}", if event.error.is_empty() { "MLX-Audio transcription error" } else { &event.error }));
+            return Err(anyhow!(
+                "{}",
+                if event.error.is_empty() {
+                    "MLX-Audio transcription error"
+                } else {
+                    &event.error
+                }
+            ));
         }
         if event.text.trim().is_empty() {
             return Ok(Next::Continue); // e.g. MLX-Audio's initial {status: ready} frame.
@@ -74,23 +96,43 @@ async fn read_transcripts(app: AppHandle, source: &'static str, read: WsRead) ->
             builder.emit_tail("", 0, 0);
         }
         Ok(Next::Continue)
-    }).await
+    })
+    .await
 }
 
-pub async fn run_session(app: AppHandle, config: TranscribeConfig, source: &'static str, pcm_rx: UnboundedReceiver<Vec<i16>>) -> Result<()> {
+pub async fn run_session(
+    app: AppHandle,
+    config: TranscribeConfig,
+    source: &'static str,
+    pcm_rx: UnboundedReceiver<Vec<i16>>,
+) -> Result<()> {
     let ws = connect_with_headers(MLX_PARAKEET_URL, &[]).await?;
     let (mut write, read) = ws.split();
-    let model = if config.model.trim().is_empty() { DEFAULT_MODEL } else { config.model.as_str() };
-    write.send(Message::Text(json!({
-        "model": model,
-        "language": "en",
-        "sample_rate": 16_000,
-        "streaming": false,
-    }).to_string().into())).await?;
+    let model = if config.model.trim().is_empty() {
+        DEFAULT_MODEL
+    } else {
+        config.model.as_str()
+    };
+    write
+        .send(Message::Text(
+            json!({
+                "model": model,
+                "language": "en",
+                "sample_rate": 16_000,
+                "streaming": false,
+            })
+            .to_string(),
+        ))
+        .await?;
     eprintln!("[mlx-parakeet:{source}] connected to loopback MLX-Audio, model={model} (speaker labels unavailable)");
     drive_session(
         "mlx-parakeet",
-        forward_audio(write, LevelMeter::new(app.clone(), source, LEVEL_EVENT), pcm_rx),
+        forward_audio(
+            write,
+            LevelMeter::new(app.clone(), source, LEVEL_EVENT),
+            pcm_rx,
+        ),
         read_transcripts(app, source, read),
-    ).await
+    )
+    .await
 }

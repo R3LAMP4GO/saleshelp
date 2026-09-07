@@ -504,6 +504,8 @@ interface ParleyState {
   isFinalizingMeeting: boolean;
   setFinalizingMeeting: (v: boolean) => void;
   meetingStartedAt: number | null;
+  /** Stable identity for the current live meeting; replaced on every start. */
+  meetingId: string | null;
   /** When the CURRENT pause began (epoch ms), null while not paused. */
   meetingPausedAt: number | null;
   /** Total paused time (ms) accumulated by PREVIOUS pauses this meeting —
@@ -651,6 +653,7 @@ export const useStore = create<ParleyState>()(
       meetingStatus: "idle",
       isFinalizingMeeting: false,
       meetingStartedAt: null,
+      meetingId: null,
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       segments: [],
@@ -989,6 +992,7 @@ export const useStore = create<ParleyState>()(
       appMode: "live",
       meetingStatus: "recording",
       meetingStartedAt: Date.now(),
+      meetingId: crypto.randomUUID(),
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       loadedHistoryId: null,
@@ -1033,6 +1037,7 @@ export const useStore = create<ParleyState>()(
       appMode: "home",
       meetingStatus: "idle",
       meetingStartedAt: null,
+      meetingId: null,
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       segments: [],

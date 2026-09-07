@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { log } from "../log";
 
 export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 1;
 
@@ -91,4 +92,92 @@ export async function persistLotLiftCallState(state: LotLiftCallState): Promise<
 
 export function loadLotLiftCallState(callId: string): Promise<LotLiftCallState | null> {
   return invoke("load_lotlift_call_state", { callId });
+}
+
+export interface LotLiftCallStateStorage {
+  load(callId: string): Promise<LotLiftCallState | null>;
+  save(state: LotLiftCallState): Promise<LotLiftCallState>;
+}
+
+type ManagedCallState = {
+  state: LotLiftCallState;
+  ready: Promise<void>;
+  tail: Promise<void>;
+  seenSegmentIds: Set<string>;
+};
+
+const tauriCallStateStorage: LotLiftCallStateStorage = {
+  load: loadLotLiftCallState,
+  save: persistLotLiftCallState,
+};
+
+/** One ordered state stream per call id; a failed save remains in memory for later saves. */
+export class LotLiftCallStateManager {
+  private readonly calls = new Map<string, ManagedCallState>();
+  private readonly retiredCallIds = new Set<string>();
+
+  constructor(
+    private readonly storage: LotLiftCallStateStorage = tauriCallStateStorage,
+    private readonly onPersistFailure: (message: string, error: unknown, callId: string) => void = (message, error, callId) =>
+      log.warn(message, { callId, error: String(error) }),
+  ) {}
+
+  activate(callId: string): void {
+    if (this.calls.has(callId) || this.retiredCallIds.has(callId)) return;
+    const call: ManagedCallState = {
+      state: newLotLiftCallState(callId),
+      ready: Promise.resolve(),
+      tail: Promise.resolve(),
+      seenSegmentIds: new Set(),
+    };
+    this.calls.set(callId, call);
+    call.ready = this.storage.load(callId).then((saved) => {
+      if (saved) call.state = saved;
+    }).catch((error) => {
+      this.onPersistFailure("LotLift Call State load failed", error, callId);
+    });
+  }
+
+  /** Claims a finalized segment once across every live coach subscriber. */
+  record(callId: string, segmentId: string, event: CallStateEvent): boolean {
+    this.activate(callId);
+    const call = this.calls.get(callId);
+    if (!call || call.seenSegmentIds.has(segmentId)) return false;
+    call.seenSegmentIds.add(segmentId);
+    call.tail = call.tail.then(async () => {
+      await call.ready;
+      call.state = reduceLotLiftCallState(call.state, event);
+      try {
+        call.state = await this.storage.save(call.state);
+      } catch (error) {
+        this.onPersistFailure("LotLift Call State save failed", error, callId);
+        try {
+          call.state = await this.storage.save(call.state);
+        } catch (retryError) {
+          this.onPersistFailure("LotLift Call State retry failed", retryError, callId);
+        }
+      }
+    });
+    return true;
+  }
+
+  async flush(callId: string): Promise<void> {
+    const call = this.calls.get(callId);
+    if (!call) return;
+    await call.ready;
+    await call.tail;
+  }
+
+  async retire(callId: string): Promise<void> {
+    const call = this.calls.get(callId);
+    this.retiredCallIds.add(callId);
+    if (!call) return;
+    await call.ready;
+    await call.tail;
+    if (this.calls.get(callId) === call) this.calls.delete(callId);
+  }
+
+  stateFor(callId: string): LotLiftCallState | null {
+    return this.calls.get(callId)?.state ?? null;
+  }
 }
