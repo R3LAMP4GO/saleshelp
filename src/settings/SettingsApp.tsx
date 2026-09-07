@@ -693,11 +693,14 @@ export function SettingsApp() {
                 </SelectContent>
               </Select>
             </Field>
-            {/* Hosted "parley" authenticates with the cloud session token, not a
-                user-entered key — show whose account it bills to instead. */}
+            {/* Hosted and local providers authenticate without a user-entered vendor key. */}
             {settings.transcriptionProvider === "parley" ? (
               <p className="max-w-md text-[11px] text-muted-foreground">
                 {t("settings.account.useParley.note", { email: cloudAuth?.user.email ?? "" })}
+              </p>
+            ) : sttInfo.requiresApiKey === false ? (
+              <p className="max-w-md text-[11px] text-muted-foreground">
+                Uses the local MLX-Audio server at 127.0.0.1:18080. Audio stays on this machine; no API key is sent.
               </p>
             ) : (
               <Field label={t("settings.transcription.apiKey", { provider: sttInfo.label })}>

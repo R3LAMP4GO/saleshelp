@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useStore } from "../store";
 import { STT_BY_ID, sttApiKey, sttRelayUrl } from "../transcription/providers";
-import { startMockStream } from "../mockStream";
 import { vocabularyTerms } from "../dictionary";
 import { isTauri } from "../tauriEvents";
 import { translate, type TranslationKey } from "../../i18n/messages";
@@ -48,8 +47,11 @@ async function start(): Promise<void> {
     useStore.getState().stopMeeting();
     toast.error(t("meeting.error.signin"));
   } else {
-    log.info("meeting: start (mock stream)");
-    startMockStream();
+    // A missing provider credential must never look like a real call. The old
+    // developer mock injected scripted speakers here, contaminating live calls.
+    log.info("meeting: start blocked (provider has no credential)", { provider: settings.transcriptionProvider });
+    useStore.getState().stopMeeting();
+    toast.error("Configure a transcription provider before starting a meeting.");
   }
 }
 

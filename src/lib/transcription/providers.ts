@@ -27,6 +27,8 @@ export interface SttProviderInfo {
   supportsFileUpload: boolean;
   /** Settings field holding this provider's API key. */
   apiKeyField: keyof Settings;
+  /** Local providers use no credential. */
+  requiresApiKey?: boolean;
   keyPlaceholder: string;
   /** Brand icon in /public/providers. */
   icon: string;
@@ -48,6 +50,7 @@ export const STT_PROVIDERS: SttProviderInfo[] = [
   { id: "assemblyai", label: "AssemblyAI", diarization: false, supportsFileUpload: true, apiKeyField: "assemblyaiApiKey", keyPlaceholder: "…", icon: "/providers/assemblyai.png" },
   { ...fromLlm("openai"), diarization: false, supportsFileUpload: true },
   { ...fromLlm("gemini"), diarization: false, supportsFileUpload: false },
+  { id: "mlx-parakeet", label: "Local Parakeet v2", diarization: false, supportsFileUpload: false, apiKeyField: "parleyApiKey", requiresApiKey: false, keyPlaceholder: "", icon: "/parley.svg" },
   // Hosted account mode: audio goes through Parley Cloud to Soniox (which
   // diarizes), so no vendor is exposed and no key field is used — auth is the
   // signed-in cloud session (see sttApiKey). Borrows the Parley brand from the
@@ -76,6 +79,7 @@ export const STT_BY_ID = Object.fromEntries(STT_PROVIDERS.map((p) => [p.id, p]))
  * the signed-in cloud session token (empty when signed out, which gates start).
  */
 export function sttApiKey(settings: Settings, id: SttProviderId): string {
+  if (id === "mlx-parakeet") return "local";
   if (id === "parley") return cloudToken() ?? "";
   // Trimmed: a pasted key routinely carries a trailing newline, and the callers
   // that gate on `sttApiKey(...).trim()` would then start a session with the

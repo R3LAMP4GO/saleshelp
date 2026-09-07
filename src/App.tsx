@@ -35,6 +35,7 @@ import { useAnalysisEngine, listenForCacheClear } from "./lib/analysis/engine";
 import { initStudyPipeline } from "./lib/analysis/studyPipeline";
 import { listenForSpeakerCacheClear } from "./lib/speakers/namesCache";
 import { initHistoryPersistSync, listenForRecordingSaved } from "./lib/history/history";
+import { initLotLiftCoach } from "./lib/lotlift/coach";
 import { checkForUpdate } from "./lib/update";
 import {
   getPendingInstalledReleaseNotes,
@@ -153,6 +154,7 @@ const App = () => {
     const unSessionCmds = initSessionCommands();
     const unHistoryPersist = initHistoryPersistSync();
     const unStudyPipeline = initStudyPipeline();
+    const unLotLiftCoach = initLotLiftCoach();
     const unVoiceTyping = initVoiceTyping();
     return () => {
       active = false;
@@ -163,6 +165,7 @@ const App = () => {
       unSessionCmds();
       unHistoryPersist();
       unStudyPipeline();
+      unLotLiftCoach();
       unVoiceTyping();
     };
   }, []);

@@ -262,10 +262,11 @@ export function Onboarding() {
                   ))}
                 </SelectContent>
               </Select>
-              {/* The hosted provider authenticates with the signed-in session, not
-                  an API key — so no key field for it. */}
+              {/* Hosted and local providers authenticate without a user-entered vendor key. */}
               {stt.id === "parley" ? (
                 <p className="text-[11px] text-muted-foreground">{t("onboarding.login.signedIn")}</p>
+              ) : stt.requiresApiKey === false ? (
+                <p className="text-[11px] text-muted-foreground">Uses MLX-Audio at 127.0.0.1:18080; no API key is sent.</p>
               ) : (
                 <PasswordInput
                   autoComplete="off"

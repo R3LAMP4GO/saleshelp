@@ -169,7 +169,7 @@ const DEFAULT_SETTINGS: Settings = {
  * a route: it is its own OS window (lib/nav.ts → openSettingsWindow), so
  * tweaking a knob never navigates the shell away from what it was showing.
  */
-export type AppMode = "home" | "live" | "study" | "library";
+export type AppMode = "home" | "live" | "study" | "library" | "simulator";
 
 /** Left-nav panels of the Settings window (see settings/SettingsApp.tsx). */
 export type SettingsCategory =
@@ -546,6 +546,8 @@ interface ParleyState {
   resetPrep: () => void;
   /** Show the Home overview (idle landing — blocked while recording). */
   openHome: () => void;
+  /** Show the synthetic LotLift call simulator (blocked while recording). */
+  openSimulator: () => void;
   /** Show the recordings library at `selection` (blocked while recording). */
   openLibrary: (selection: LibrarySelection) => void;
   librarySelection: LibrarySelection;
@@ -676,6 +678,8 @@ export const useStore = create<ParleyState>()(
     }),
   openHome: () =>
     set((s) => (isMeetingActive(s.meetingStatus) ? {} : { appMode: "home" })),
+  openSimulator: () =>
+    set((s) => (isMeetingActive(s.meetingStatus) ? {} : { appMode: "simulator" })),
   openLibrary: (librarySelection) =>
     set((s) =>
       isMeetingActive(s.meetingStatus) ? {} : { appMode: "library", librarySelection }

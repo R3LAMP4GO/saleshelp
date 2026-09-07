@@ -62,10 +62,11 @@ describe("evalsFromDefs", () => {
 describe("built-in templates", () => {
   const t = ((key: string) => key) as Parameters<typeof buildPresetEvalTemplates>[0];
 
-  it("ships exactly one template per meeting kind", () => {
+  it("ships every meeting-kind template plus LotLift", () => {
     const ids = buildPresetEvalTemplates(t).map((tpl) => tpl.id);
-    expect(ids).toHaveLength(MEETING_KINDS.length);
+    expect(ids).toHaveLength(MEETING_KINDS.length + 1);
     for (const kind of MEETING_KINDS) expect(ids).toContain(EVAL_TEMPLATE_OF[kind]);
+    expect(ids).toContain("tpl-lotlift-sales");
   });
 
   it("gives every built-in evaluation a unique id and a real prompt", () => {

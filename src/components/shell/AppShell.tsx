@@ -8,6 +8,7 @@ import {
 import { LiveScreen } from "../live/LiveScreen";
 import { StudyScreen } from "../study/StudyScreen";
 import { HomeScreen } from "../home/HomeScreen";
+import { LiveCallSimulator } from "../lotlift/LiveCallSimulator";
 import { AppSidebar } from "./AppSidebar";
 import { CommandPalette } from "./CommandPalette";
 import { useLibraryTree } from "./useLibraryTree";
@@ -97,5 +98,6 @@ function RouteContent({
   // on Home. "live" with no active meeting can still occur transiently between
   // stop and save — the cockpit stays up so the finalizing state has a floor.
   if (mode === "live") return <LiveScreen />;
+  if (mode === "simulator") return <LiveCallSimulator />;
   return <HomeScreen tree={tree} />;
 }

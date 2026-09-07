@@ -2,6 +2,7 @@ mod audio;
 mod ax_observe;
 mod capture;
 mod commands;
+mod call_state;
 mod diarize;
 mod history;
 mod hotkey;
@@ -123,6 +124,8 @@ pub fn run() {
             commands::stop_mic_test,
             commands::meeting_active,
             commands::save_transcript,
+            call_state::load_lotlift_call_state,
+            call_state::save_lotlift_call_state,
             commands::export_recording,
             commands::start_oauth_loopback,
             commands::read_templates,

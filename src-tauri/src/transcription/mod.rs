@@ -13,6 +13,7 @@ pub mod assemblyai;
 pub mod common;
 pub mod deepgram;
 pub mod gemini;
+pub mod mlx_parakeet;
 pub mod openai;
 pub mod soniox;
 pub mod ws;
@@ -31,6 +32,7 @@ pub enum SttProvider {
     AssemblyAI,
     OpenAI,
     Gemini,
+    MlxParakeet,
     /// Hosted account mode: speaks the Soniox wire protocol, but the audio is
     /// relayed through Parley Cloud (cloud WSS URL + Bearer token, no vendor key)
     /// — see [`TranscribeConfig::relay_endpoint`] and `soniox::run_session`.
@@ -47,6 +49,7 @@ impl SttProvider {
             "assemblyai" => Self::AssemblyAI,
             "openai" => Self::OpenAI,
             "gemini" => Self::Gemini,
+            "mlx-parakeet" => Self::MlxParakeet,
             "parley" => Self::Parley,
             other => return Err(anyhow!("unknown stt provider: {other}")),
         })
@@ -60,6 +63,7 @@ impl SttProvider {
             Self::AssemblyAI => "assemblyai",
             Self::OpenAI => "openai",
             Self::Gemini => "gemini",
+            Self::MlxParakeet => "mlx-parakeet",
             Self::Parley => "parley",
         }
     }
@@ -72,6 +76,7 @@ impl SttProvider {
             Self::AssemblyAI => "", // single streaming model, no id needed
             Self::OpenAI => "gpt-4o-transcribe",
             Self::Gemini => "gemini-2.0-flash-live-001",
+            Self::MlxParakeet => "mlx-community/parakeet-tdt-0.6b-v2",
             // The relay forces the real model server-side; this is just the value
             // that rides in the (relayed) config frame.
             Self::Parley => "stt-rt-v5",
@@ -100,6 +105,7 @@ pub async fn run_session(
         SttProvider::AssemblyAI => assemblyai::run_session(app, config, source, pcm_rx).await,
         SttProvider::OpenAI => openai::run_session(app, config, source, pcm_rx).await,
         SttProvider::Gemini => gemini::run_session(app, config, source, pcm_rx).await,
+        SttProvider::MlxParakeet => mlx_parakeet::run_session(app, config, source, pcm_rx).await,
         // Hosted relay speaks Soniox's protocol; the cloud URL + token in
         // config.relay_endpoint switch the adapter into relay mode.
         SttProvider::Parley => soniox::run_session(app, config, source, pcm_rx).await,

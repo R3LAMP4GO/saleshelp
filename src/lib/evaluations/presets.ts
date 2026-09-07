@@ -1,5 +1,6 @@
 import type { EvalDef, EvalTemplate, Evaluation } from "../types";
 import type { TranslationKey } from "../../i18n/messages";
+import { buildLotLiftEvaluationTemplate } from "../lotlift/evaluations";
 
 /**
  * Built-in evaluation definitions and the template library that ship with
@@ -334,6 +335,7 @@ export function buildPresetEvalTemplates(t: T): EvalTemplate[] {
       evals: internalDefs(t, unanswered, checklist),
     },
     { id: "tpl-sales", name: t("tpl.evalSet.tpl-sales.name"), builtin: true, evals: salesDefs },
+    buildLotLiftEvaluationTemplate(),
     { id: "tpl-pricing", name: t("tpl.evalSet.tpl-pricing.name"), builtin: true, evals: pricingDefs },
     {
       id: "tpl-rivalry",

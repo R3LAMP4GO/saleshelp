@@ -1,4 +1,4 @@
-import { ArrowRight, ClipboardList, FileAudio, Import, Mic } from "lucide-react";
+import { ArrowRight, ClipboardList, FileAudio, Import, Mic, MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { loadHistoryEntry } from "../../lib/history/history";
@@ -20,6 +20,7 @@ export function HomeScreen({ tree }: Readonly<{ tree: LibraryTree }>) {
   const { t, language } = useI18n();
   const userName = useStore((s) => s.settings.userName);
   const openLibrary = useStore((s) => s.openLibrary);
+  const openSimulator = useStore((s) => s.openSimulator);
 
   const folderName = (id: string | null | undefined) =>
     id ? tree.personalFolders.find((f) => f.id === id)?.name : undefined;
@@ -66,6 +67,10 @@ export function HomeScreen({ tree }: Readonly<{ tree: LibraryTree }>) {
             >
               <Import className="size-4" />
               {t("home.import")}
+            </Button>
+            <Button size="lg" variant="outline" className="h-10" onClick={openSimulator}>
+              <MessageSquareText className="size-4" />
+              Live Call Simulator
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{t("home.dropHint")}</p>
