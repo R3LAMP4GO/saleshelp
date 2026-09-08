@@ -1,3 +1,4 @@
+import { customSalesProfileSnapshot, type CustomSalesProfile, type CustomSalesProfileSnapshot } from "./customProfiles";
 import type { SalesMotion, SalesProfile } from "./profiles";
 
 export interface SalesProspectReference {
@@ -17,6 +18,8 @@ export interface SalesMeetingMetadata {
   playbookVersion: string;
   productFactsVersion: string;
   evaluationVersion: string;
+  /** Immutable local source retained with a custom-profile meeting. */
+  customProfile?: CustomSalesProfileSnapshot;
   prospect?: SalesProspectReference;
   selectedAt: string;
 }
@@ -38,6 +41,23 @@ export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesPros
     playbookVersion: profile.playbook.version,
     productFactsVersion: profile.productFacts.version,
     evaluationVersion: profile.evaluation.version,
+    ...(prospect && Object.values(prospect).some(Boolean) ? { prospect } : {}),
+    selectedAt,
+  };
+}
+
+/** Custom profiles retain their source snapshot, but never opt into LotLift policy. */
+export function customSalesMeetingMetadata(profile: CustomSalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString()): SalesMeetingMetadata {
+  const snapshot = customSalesProfileSnapshot(profile);
+  return {
+    salesProfileId: `custom:${snapshot.id}`,
+    businessId: snapshot.businessName,
+    motion: "cold-outbound",
+    profileVersion: snapshot.updatedAt,
+    playbookVersion: snapshot.updatedAt,
+    productFactsVersion: "none",
+    evaluationVersion: "none",
+    customProfile: snapshot,
     ...(prospect && Object.values(prospect).some(Boolean) ? { prospect } : {}),
     selectedAt,
   };

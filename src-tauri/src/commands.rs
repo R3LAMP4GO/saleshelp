@@ -1,5 +1,8 @@
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -92,6 +95,211 @@ pub fn read_folders(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn write_folders(app: AppHandle, json: String) -> Result<(), String> {
     write_config_file(&app, "folders.json", &json)
+}
+
+const SALES_PROFILES_FILE: &str = "sales-profiles.json";
+const MAX_SALES_PROFILES: usize = 100;
+const MAX_SALES_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_SALES_PLAYBOOK_CHARS: usize = 200_000;
+const MAX_SALES_FIELD_CHARS: usize = 160;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CustomSalesProfileRecord {
+    id: String,
+    business_name: String,
+    mode_name: String,
+    source_name: String,
+    playbook_text: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedSalesSource {
+    name: String,
+    text: String,
+}
+
+fn normalized_sales_text(value: &str) -> String {
+    value
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace('\0', "")
+        .trim()
+        .chars()
+        .take(MAX_SALES_PLAYBOOK_CHARS)
+        .collect()
+}
+
+fn normalized_sales_field(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn valid_sales_field(value: &str) -> bool {
+    let normalized = value.trim();
+    !normalized.is_empty() && normalized.chars().count() <= MAX_SALES_FIELD_CHARS
+}
+
+fn validate_sales_profiles(profiles: &[CustomSalesProfileRecord]) -> Result<(), String> {
+    if profiles.len() > MAX_SALES_PROFILES {
+        return Err("Too many sales profiles.".into());
+    }
+    let mut ids = std::collections::HashSet::new();
+    for profile in profiles {
+        if uuid::Uuid::parse_str(&profile.id).is_err() || !ids.insert(&profile.id) {
+            return Err("Sales profile IDs must be unique UUIDs.".into());
+        }
+        if !valid_sales_field(&profile.business_name)
+            || !valid_sales_field(&profile.mode_name)
+            || !valid_sales_field(&profile.source_name)
+            || profile.source_name.contains(['/', '\\'])
+            || profile.created_at.trim().is_empty()
+            || profile.updated_at.trim().is_empty()
+        {
+            return Err("A sales profile has invalid required fields.".into());
+        }
+        let normalized = normalized_sales_text(&profile.playbook_text);
+        if normalized.is_empty() || normalized.chars().count() > MAX_SALES_PLAYBOOK_CHARS {
+            return Err("A sales profile has invalid playbook text.".into());
+        }
+    }
+    Ok(())
+}
+
+fn atomic_write_file(
+    path: &Path,
+    contents: &[u8],
+    before_rename: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Sales profile storage path is invalid.".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|_| "Could not create sales profile storage.".to_string())?;
+    let temp = parent.join(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("sales-profiles"),
+        uuid::Uuid::new_v4()
+    ));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|_| "Could not prepare sales profile storage.".to_string())?;
+        file.write_all(contents)
+            .map_err(|_| "Could not save sales profiles.".to_string())?;
+        file.sync_all()
+            .map_err(|_| "Could not save sales profiles.".to_string())?;
+        before_rename()?;
+        std::fs::rename(&temp, path)
+            .map_err(|_| "Could not replace sales profiles.".to_string())?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| "Could not finalize sales profile storage.".to_string())?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn read_sales_profiles(app: AppHandle) -> Result<String, String> {
+    let path = app_config_file(&app, SALES_PROFILES_FILE)?;
+    match std::fs::read_to_string(path) {
+        Ok(contents) => Ok(contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("[]".into()),
+        Err(_) => Err("Could not read sales profiles.".into()),
+    }
+}
+
+// simplification: concurrent app instances are last-writer-wins; add file locking or revisions for multi-window editing.
+#[tauri::command]
+pub fn write_sales_profiles(app: AppHandle, json: String) -> Result<(), String> {
+    let mut profiles: Vec<CustomSalesProfileRecord> =
+        serde_json::from_str(&json).map_err(|_| "Sales profiles are malformed.".to_string())?;
+    validate_sales_profiles(&profiles)?;
+    for profile in &mut profiles {
+        profile.business_name = normalized_sales_field(&profile.business_name);
+        profile.mode_name = normalized_sales_field(&profile.mode_name);
+        profile.source_name = profile.source_name.trim().to_string();
+        profile.playbook_text = normalized_sales_text(&profile.playbook_text);
+        profile.created_at = profile.created_at.trim().to_string();
+        profile.updated_at = profile.updated_at.trim().to_string();
+    }
+    let contents = serde_json::to_vec_pretty(&profiles)
+        .map_err(|_| "Could not encode sales profiles.".to_string())?;
+    atomic_write_file(
+        &app_config_file(&app, SALES_PROFILES_FILE)?,
+        &contents,
+        || Ok(()),
+    )
+}
+
+#[tauri::command]
+pub fn read_sales_playbook_source(path: String) -> Result<ImportedSalesSource, String> {
+    let path = PathBuf::from(path);
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "md" | "markdown" | "txt" | "pdf") {
+        return Err("Choose a Markdown, text, or PDF file.".into());
+    }
+    let metadata =
+        std::fs::metadata(&path).map_err(|_| "Could not read the selected file.".to_string())?;
+    if !metadata.is_file() || metadata.len() > MAX_SALES_SOURCE_BYTES {
+        return Err("The selected file is not a supported size.".into());
+    }
+    let bytes =
+        std::fs::read(&path).map_err(|_| "Could not read the selected file.".to_string())?;
+    if bytes.len() as u64 > MAX_SALES_SOURCE_BYTES {
+        return Err("The selected file is too large.".into());
+    }
+    let text = if extension == "pdf" {
+        std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&bytes))
+            .map_err(|_| "Could not extract text from the PDF.".to_string())?
+            .map_err(|_| "Could not extract text from the PDF.".to_string())?
+    } else {
+        String::from_utf8(bytes).map_err(|_| "The selected text file is not UTF-8.".to_string())?
+    };
+    let text = normalized_sales_text(&text);
+    if text.is_empty() {
+        return Err("The selected file does not contain readable text.".into());
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "The selected file has no usable name.".to_string())?
+        .to_string();
+    Ok(ImportedSalesSource { name, text })
+}
+
+#[cfg(test)]
+mod sales_profile_tests {
+    use super::atomic_write_file;
+
+    #[test]
+    fn failed_replacement_keeps_the_previous_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sales-profiles.json");
+        std::fs::write(&path, b"[\"previous\"]").unwrap();
+
+        assert!(
+            atomic_write_file(&path, b"[\"next\"]", || Err("injected failure".into())).is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"[\"previous\"]");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 }
 
 /// Meeting-specific state held in Tauri's managed state. Who owns the mic (and

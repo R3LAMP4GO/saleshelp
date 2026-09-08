@@ -198,6 +198,7 @@ export type SettingsCategory =
   // shared file (lib/dictionary) so the MCP server can edit it too. This is
   // only the nav id for its panel.
   | "dictionary"
+  | "salesProfiles"
   | "voiceTyping"
   | "permissions"
   | "evaluations"
@@ -1012,7 +1013,11 @@ export const useStore = create<ParleyState>()(
   startMeeting: (salesMetadata) => {
     log.info("store: meeting started", { salesProfileId: salesMetadata?.salesProfileId });
     const metadata = salesMetadata
-      ? Object.freeze({ ...salesMetadata, ...(salesMetadata.prospect ? { prospect: { ...salesMetadata.prospect } } : {}) })
+      ? Object.freeze({
+          ...salesMetadata,
+          ...(salesMetadata.prospect ? { prospect: { ...salesMetadata.prospect } } : {}),
+          ...(salesMetadata.customProfile ? { customProfile: Object.freeze({ ...salesMetadata.customProfile }) } : {}),
+        })
       : null;
     set({
       // Recording owns the window: land on the live cockpit.

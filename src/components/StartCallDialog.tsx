@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,9 @@ import {
   subscribeMeetingStartRequest,
 } from "../lib/meeting/requestStart";
 import { availableSalesProfiles, getSalesProfile } from "../lib/sales/profiles";
-import { salesMeetingMetadata, type SalesProspectReference } from "../lib/sales/meeting";
+import { customSalesMeetingMetadata, salesMeetingMetadata, type SalesProspectReference } from "../lib/sales/meeting";
+import { type CustomSalesProfile } from "../lib/sales/customProfiles";
+import { loadCustomSalesProfiles } from "../lib/sales/customProfileStore";
 import { isProspectDoNotContact, leadMemory, normalizeProspect } from "../lib/sales/leadMemory";
 import "../../sales-profiles/lotlift/profile";
 
@@ -22,14 +24,22 @@ export function StartCallDialog() {
   const open = useSyncExternalStore(subscribeMeetingStartRequest, isMeetingStartRequested, () => false);
   const [activity, setActivity] = useState<Activity>(null);
   const [profileId, setProfileId] = useState("");
+  const [customProfiles, setCustomProfiles] = useState<CustomSalesProfile[]>([]);
   const [prospect, setProspect] = useState<SalesProspectReference>({});
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState("");
   const profiles = availableSalesProfiles();
   const selectedProfile = getSalesProfile(profileId);
-  const salesReady = activity === "sales" && !!selectedProfile;
+  const selectedCustomProfile = customProfiles.find((profile) => profile.id === profileId);
+  const selectedBusinessId = selectedProfile?.businessId ?? selectedCustomProfile?.businessName;
+  const salesReady = activity === "sales" && !!selectedBusinessId;
   const normalizedProspect = normalizeProspect(prospect);
-  const dncBlocked = !!selectedProfile && isProspectDoNotContact(leadMemory, selectedProfile.businessId, normalizedProspect);
+  const dncBlocked = activity === "sales" && !!selectedBusinessId && isProspectDoNotContact(leadMemory, selectedBusinessId, normalizedProspect);
+
+  useEffect(() => {
+    if (!open) return;
+    loadCustomSalesProfiles().then(setCustomProfiles).catch(() => setStatus("Could not load custom sales profiles."));
+  }, [open]);
   const ready = (activity === "general" || salesReady) && !dncBlocked;
 
   const updateProspect = (key: keyof SalesProspectReference, value: string) =>
@@ -37,7 +47,7 @@ export function StartCallDialog() {
 
   async function start() {
     if (!ready || starting) return;
-    if (selectedProfile && isProspectDoNotContact(leadMemory, selectedProfile.businessId, normalizedProspect)) {
+    if (activity === "sales" && selectedBusinessId && isProspectDoNotContact(leadMemory, selectedBusinessId, normalizedProspect)) {
       setStatus(t("startCall.dncBlocked"));
       return;
     }
@@ -45,7 +55,9 @@ export function StartCallDialog() {
     setStatus(t("startCall.starting"));
     const metadata = activity === "sales" && selectedProfile
       ? salesMeetingMetadata(selectedProfile, normalizedProspect)
-      : undefined;
+      : activity === "sales" && selectedCustomProfile
+        ? customSalesMeetingMetadata(selectedCustomProfile, normalizedProspect)
+        : undefined;
     const started = await beginMeeting(metadata);
     setStarting(false);
     if (started) {
@@ -94,7 +106,13 @@ export function StartCallDialog() {
                     <span><span className="block text-sm font-medium">{profile.label}</span><span className="text-xs text-muted-foreground">{t("startCall.coldOutbound")}</span></span>
                   </label>
                 ))}
-                {profiles.length === 0 && <p className="text-sm text-muted-foreground">{t("startCall.noProfiles")}</p>}
+                {customProfiles.map((profile) => (
+                  <label key={profile.id} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+                    <input type="radio" name="sales-profile" value={profile.id} checked={profileId === profile.id} onChange={() => setProfileId(profile.id)} />
+                    <span><span className="block text-sm font-medium">{profile.businessName} · {profile.modeName}</span><span className="text-xs text-muted-foreground">Custom · {profile.sourceName}</span></span>
+                  </label>
+                ))}
+                {profiles.length + customProfiles.length === 0 && <p className="text-sm text-muted-foreground">{t("startCall.noProfiles")}</p>}
               </fieldset>
 
               <fieldset className="grid gap-3 rounded-md border p-3">

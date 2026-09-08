@@ -66,6 +66,7 @@ import type { AppLanguage, AppTheme, EvalDef, LlmProvider,
   LlmWorkload, ReasoningEffort, Settings, SttProviderId } from "../lib/types";
 import { VoiceTypingSettings } from "./VoiceTypingSettings";
 import { DictionarySettings } from "./DictionarySettings";
+import { SalesProfilesSettings } from "./SalesProfilesSettings";
 import { OrgSharePicker } from "../components/OrgSharePicker";
 import { PermissionsPanel } from "./PermissionsPanel";
 
@@ -98,6 +99,7 @@ const NAV: {
   { id: "provider", labelKey: "settings.nav.provider", keywordsKey: "settings.kw.provider" },
   { id: "transcription", labelKey: "settings.nav.transcription", keywordsKey: "settings.kw.transcription" },
   { id: "dictionary", labelKey: "settings.nav.dictionary", keywordsKey: "settings.kw.dictionary" },
+  { id: "salesProfiles", labelKey: "settings.nav.salesProfiles", keywordsKey: "settings.kw.salesProfiles" },
   // macOnly: voice typing's global hotkey / paste layer and the TCC permission
   // panel aren't wired on Windows yet — hide the categories rather than show
   // dead controls.
@@ -838,6 +840,12 @@ export function SettingsApp() {
         {cat === "dictionary" && (
           <Section title={t("settings.dictionary.title")}>
             <DictionarySettings />
+          </Section>
+        )}
+
+        {cat === "salesProfiles" && (
+          <Section title={t("settings.nav.salesProfiles")}>
+            <SalesProfilesSettings />
           </Section>
         )}
 
