@@ -9,6 +9,7 @@ import { hasProviderKey } from "../../lib/ai/settings";
 import { runAnalysis } from "../../lib/analysis/engine";
 import { useI18n } from "../../i18n";
 import { log } from "../../lib/log";
+import { getSalesPilotLiveStatus, subscribeSalesPilotLiveStatus } from "../../lib/sales/liveStatus";
 import { FindingRow } from "../analysis/FindingRow";
 import { openSolution, selectAndSeek } from "../analysis/useAnalysis";
 import { Button } from "@/components/ui/button";
@@ -159,12 +160,15 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
   const [askCards, setAskCards] = useState<AskCard[]>([]);
   const [input, setInput] = useState("");
   const [suggestionIdx, setSuggestionIdx] = useState(0);
+  const [salesPilotStatus, setSalesPilotStatus] = useState(getSalesPilotLiveStatus);
   const busy = askCards.some((c) => c.busy);
   const suggestion = t(SUGGESTIONS[suggestionIdx]);
   // Same follow-the-tail rule as the transcript: chase new cards only while
   // the reader is already at the bottom. No pill here — the feed's own ask bar
   // already sits under it, and a second floating control would crowd it.
   const { viewportRef } = useStickToBottom([findings.length, askCards]);
+
+  useEffect(() => subscribeSalesPilotLiveStatus(() => setSalesPilotStatus(getSalesPilotLiveStatus())), []);
 
   // Rotate the ghost suggestion while the input is empty.
   useEffect(() => {
@@ -229,7 +233,8 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t("feed.title")}
         </span>
-        <div className="flex items-center">
+        <div className="flex items-center gap-2">
+          {salesPilotStatus && <span aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground">{salesPilotStatus.profile} · {salesPilotStatus.stage.replace(/-/g, " ")} · {salesPilotStatus.label}</span>}
           <Button
             size="sm"
             variant="outline"

@@ -111,6 +111,7 @@ struct CustomSalesProfileRecord {
     mode_name: String,
     source_name: String,
     playbook_text: String,
+    compiled_profile: Option<serde_json::Value>,
     created_at: String,
     updated_at: String,
 }
@@ -128,9 +129,7 @@ fn normalized_sales_text(value: &str) -> String {
         .replace('\r', "\n")
         .replace('\0', "")
         .trim()
-        .chars()
-        .take(MAX_SALES_PLAYBOOK_CHARS)
-        .collect()
+        .to_string()
 }
 
 fn normalized_sales_field(value: &str) -> String {
@@ -163,6 +162,12 @@ fn validate_sales_profiles(profiles: &[CustomSalesProfileRecord]) -> Result<(), 
         let normalized = normalized_sales_text(&profile.playbook_text);
         if normalized.is_empty() || normalized.chars().count() > MAX_SALES_PLAYBOOK_CHARS {
             return Err("A sales profile has invalid playbook text.".into());
+        }
+        if profile.compiled_profile.as_ref().is_some_and(|value| {
+            !value.is_object()
+                || serde_json::to_string(value).map_or(true, |json| json.len() > 100_000)
+        }) {
+            return Err("A sales profile has invalid compiled policy metadata.".into());
         }
     }
     Ok(())
@@ -251,8 +256,8 @@ pub fn read_sales_playbook_source(path: String) -> Result<ImportedSalesSource, S
         .and_then(|extension| extension.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !matches!(extension.as_str(), "md" | "markdown" | "txt" | "pdf") {
-        return Err("Choose a Markdown, text, or PDF file.".into());
+    if !matches!(extension.as_str(), "md" | "markdown") {
+        return Err("Choose a Markdown file.".into());
     }
     let metadata =
         std::fs::metadata(&path).map_err(|_| "Could not read the selected file.".to_string())?;
@@ -264,16 +269,14 @@ pub fn read_sales_playbook_source(path: String) -> Result<ImportedSalesSource, S
     if bytes.len() as u64 > MAX_SALES_SOURCE_BYTES {
         return Err("The selected file is too large.".into());
     }
-    let text = if extension == "pdf" {
-        std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&bytes))
-            .map_err(|_| "Could not extract text from the PDF.".to_string())?
-            .map_err(|_| "Could not extract text from the PDF.".to_string())?
-    } else {
-        String::from_utf8(bytes).map_err(|_| "The selected text file is not UTF-8.".to_string())?
-    };
+    let text = String::from_utf8(bytes)
+        .map_err(|_| "The selected Markdown file is not UTF-8.".to_string())?;
     let text = normalized_sales_text(&text);
     if text.is_empty() {
         return Err("The selected file does not contain readable text.".into());
+    }
+    if text.chars().count() > MAX_SALES_PLAYBOOK_CHARS {
+        return Err("The selected file is too long.".into());
     }
     let name = path
         .file_name()

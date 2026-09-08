@@ -1,13 +1,13 @@
 import { expect, it } from "vitest";
 import { customSalesMeetingMetadata, salesRecommendationMetadata } from "./meeting";
-import { CUSTOM_PROFILE_TEXT_LIMIT, normalizePlaybookText, validateCustomSalesProfile } from "./customProfiles";
+import { CUSTOM_PROFILE_TEXT_LIMIT, hydrateCustomSalesProfile, normalizePlaybookText, validateCustomSalesProfile } from "./customProfiles";
 
 const profile = {
   id: "89e711c1-e6e5-4c96-a136-cc96e162bc3c",
   businessName: "  Acme   Co. ",
   modeName: " Discovery ",
   sourceName: "playbook.md",
-  playbookText: "# Opening\r\n\r\nAsk why now.\u0000",
+  playbookText: "# Acme discovery\r\n\r\n## Call objective\r\nBook a demo.\r\n\r\n## Script stages\r\n### stage:opening\r\nAsk why now.\r\n\r\n## Objection rules\r\n### rule:not-interested\r\nAcknowledge and clarify.\r\n\r\n## Product facts\u0000",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-02T00:00:00.000Z",
 };
@@ -22,7 +22,8 @@ it("normalizes bounded custom playbook text and fields", () => {
 
 it("persists a custom profile source snapshot without prospect data in recommendations", () => {
   const metadata = customSalesMeetingMetadata(profile, { phone: "+15551234567" }, "2026-01-03T00:00:00.000Z");
-  expect(metadata.customProfile).toMatchObject({ businessName: "Acme Co.", sourceName: "playbook.md", playbookText: "# Opening\n\nAsk why now." });
+  expect(metadata.customProfile).toMatchObject({ businessName: "Acme Co.", sourceName: "playbook.md", compiledProfile: { objective: "Book a demo." } });
   expect(salesRecommendationMetadata(metadata)).not.toHaveProperty("prospect");
   expect(salesRecommendationMetadata(metadata)).toHaveProperty("customProfile.playbookText");
+  expect(hydrateCustomSalesProfile({ ...profile, playbookText: "# Legacy\n\nAsk why now." }).compiledProfile).toBeUndefined();
 });

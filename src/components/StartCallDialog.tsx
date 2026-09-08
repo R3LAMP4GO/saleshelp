@@ -109,7 +109,7 @@ export function StartCallDialog() {
                 {customProfiles.map((profile) => (
                   <label key={profile.id} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
                     <input type="radio" name="sales-profile" value={profile.id} checked={profileId === profile.id} onChange={() => setProfileId(profile.id)} />
-                    <span><span className="block text-sm font-medium">{profile.businessName} · {profile.modeName}</span><span className="text-xs text-muted-foreground">Custom · {profile.sourceName}</span></span>
+                    <span><span className="block text-sm font-medium">{profile.businessName} · {profile.modeName}</span><span className="text-xs text-muted-foreground">{profile.compiledProfile ? `Custom · ${profile.compiledProfile.stages[0]?.title ?? "Ready"}` : "Custom · re-import required for live coaching"}</span></span>
                   </label>
                 ))}
                 {profiles.length + customProfiles.length === 0 && <p className="text-sm text-muted-foreground">{t("startCall.noProfiles")}</p>}

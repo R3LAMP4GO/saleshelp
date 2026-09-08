@@ -1,3 +1,4 @@
+import { lotLiftSalesPilotProfile } from "../../src/lib/lotlift/playbook";
 import { registerSalesProfile, type SalesProfile } from "../../src/lib/sales/profiles";
 
 export const LOTLIFT_COLD_OUTBOUND_PROFILE: SalesProfile = {
@@ -12,8 +13,8 @@ export const LOTLIFT_COLD_OUTBOUND_PROFILE: SalesProfile = {
   vocabulary: ["LotLift", "Cars.com", "CarGurus", "AutoTrader", "BDC", "CRM", "DMS"],
   qualificationFields: ["lead_sources", "lead_arrival_point", "workflow_owner", "after_hours_process", "visibility_process", "pain_points", "authority", "urgency"],
   prohibitedClaims: ["pricing", "integration", "ROI", "customer claims", "booking", "email", "CRM", "owner claims"],
-  responsePolicy: { allowCitedProductFacts: false, allowDeterministicFallback: true },
-  productFactEntries: [],
+  responsePolicy: { allowCitedProductFacts: true, allowDeterministicFallback: true },
+  productFactEntries: lotLiftSalesPilotProfile.productFacts.map((fact) => ({ ...fact, version: "1", approval: { version: "1", status: "approved" } })),
 };
 
 registerSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);

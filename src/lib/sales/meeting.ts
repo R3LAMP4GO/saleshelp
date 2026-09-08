@@ -55,7 +55,7 @@ export function customSalesMeetingMetadata(profile: CustomSalesProfile, prospect
     motion: "cold-outbound",
     profileVersion: snapshot.updatedAt,
     playbookVersion: snapshot.updatedAt,
-    productFactsVersion: "none",
+    productFactsVersion: snapshot.compiledProfile ? String(snapshot.compiledProfile.version) : "none",
     evaluationVersion: "none",
     customProfile: snapshot,
     ...(prospect && Object.values(prospect).some(Boolean) ? { prospect } : {}),

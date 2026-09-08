@@ -1,4 +1,5 @@
 import playbookMarkdown from "../../../lotlift-sales-playbook.md?raw";
+import { compileSalesPilotProfile, type SalesPilotProfile } from "../sales/salesPilot";
 
 export type LotLiftPlaybookSection =
   | "North star"
@@ -74,6 +75,7 @@ export function parseLotLiftPlaybook(markdown: string): Map<string, LotLiftPlayb
   const blocks = markdown.matchAll(/^### ([a-z-]+:[a-z-]+)\s*\n([\s\S]*?)(?=^### |^## |(?![\s\S]))/gm);
   for (const block of blocks) {
     const id = block[1];
+    if (!LOTLIFT_REQUIRED_RULE_IDS.includes(id as LotLiftPlaybookRuleId)) continue;
     const body = block[2];
     const values = Object.fromEntries(requiredRuleFields.map(([label, key]) => [key, requiredRuleValue(body, label, id)])) as Omit<LotLiftPlaybookRule, "id" | "good_examples">;
     const examples = body.match(/^- \*\*Good examples:\*\*\s*\n((?:  - .*(?:\n|$))+)/m)?.[1]
@@ -88,6 +90,8 @@ export function parseLotLiftPlaybook(markdown: string): Map<string, LotLiftPlayb
   }
   return rules;
 }
+
+export const lotLiftSalesPilotProfile: SalesPilotProfile = compileSalesPilotProfile(playbookMarkdown);
 
 let rules: Map<string, LotLiftPlaybookRule> | null = null;
 

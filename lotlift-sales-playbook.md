@@ -9,6 +9,10 @@ sources:
 
 # LotLift sales playbook
 
+## Call objective
+
+Book a product demo.
+
 ## North star
 
 The cold call earns a **15-minute Lead Response Workflow Check**. It does not sell LotLift on the first call.
@@ -16,6 +20,44 @@ The cold call earns a **15-minute Lead Response Workflow Check**. It does not se
 Use this order: reach the right owner → establish relevant problem context → learn one fact about their workflow → book the check.
 
 LotLift is a lead-coverage workflow for **approved inbound online inquiry sources**. It helps independent dealerships see and consistently handle leads when the team is busy or after hours.
+
+## Script stages
+
+### stage:opening
+
+Earn permission to ask one discovery question.
+
+### stage:discovery
+
+Learn how inbound leads arrive, who owns them, and where coverage can fail.
+
+### stage:qualification
+
+Confirm a real workflow gap, authority path, and next step.
+
+### stage:close
+
+Book a product demo when the prospect confirms relevance.
+
+## Objection rules
+
+### rule:not-interested
+
+Acknowledge the concern, clarify its reason, and stop after two real noes.
+
+### rule:do-not-contact
+
+Confirm the request, record do-not-contact, and stop coaching immediately.
+
+## Product facts
+
+### product:approved-inbound-workflow
+**Statement:** LotLift helps teams create a workflow for approved inbound lead sources.
+**Category:** capability
+
+### product:lead-ownership
+**Statement:** LotLift helps teams make lead ownership visible when their team is busy or after hours.
+**Category:** capability
 
 ## Ideal customer and fit
 
