@@ -1,19 +1,89 @@
 import { describe, expect, it } from "vitest";
-import { LotLiftCallStateManager, newLotLiftCallState, reduceLotLiftCallState, type LotLiftCallState } from "./callState";
+import {
+  applyLotLiftAiStatePatch,
+  lotLiftAutomationEligibility,
+  LotLiftCallStateManager,
+  newLotLiftCallState,
+  reduceLotLiftCallState,
+  type LotLiftCallState,
+  type LotLiftFieldValue,
+} from "./callState";
+
+const verified = (value: string, segmentId = "segment-1"): LotLiftFieldValue<string> => ({
+  value,
+  status: "verified",
+  evidence: { segment_id: segmentId, text: `Prospect said ${value}` },
+});
+
+const inferred = (value: string): LotLiftFieldValue<string> => ({
+  value,
+  status: "inferred",
+  evidence: { segment_id: "segment-2", text: `Indirectly suggests ${value}` },
+});
 
 describe("LotLift Call State", () => {
-  it("deduplicates facts and counts recurring objections with evidence", () => {
-    const start = newLotLiftCallState("call_1");
-    const withPain = reduceLotLiftCallState(start, { type: "pain", value: "  Three leads sat overnight " });
-    const deduplicated = reduceLotLiftCallState(withPain, { type: "pain", value: "three leads sat overnight" });
-    const once = reduceLotLiftCallState(deduplicated, { type: "objection", kind: "existing-solution", evidence: { segment_id: "s1", text: "We have a CRM." } });
-    const twice = reduceLotLiftCallState(once, { type: "objection", kind: "existing-solution", evidence: { segment_id: "s2", text: "Our CRM already handles it." } });
+  it("initializes every scalar field as evidence-aware unknown", () => {
+    const state = newLotLiftCallState("call_1");
 
-    expect(twice.quantified_pain).toEqual(["Three leads sat overnight"]);
-    expect(twice.recurring_objections).toEqual([{ kind: "existing-solution", count: 2, resolved: false, evidence: [
-      { segment_id: "s1", text: "We have a CRM." },
-      { segment_id: "s2", text: "Our CRM already handles it." },
-    ] }]);
+    expect(state).toMatchObject({
+      schema_version: 4,
+      dealership: { value: null, status: "unknown", evidence: null },
+      lead_arrival_point: { value: null, status: "unknown", evidence: null },
+      renewal_date: { value: null, status: "unknown", evidence: null },
+      stated_readiness: { value: null, status: "unknown", evidence: null },
+      fit_status: { value: null, status: "unknown", evidence: null },
+      next_action_at: { value: null, status: "unknown", evidence: null },
+    });
+    expect(state).toMatchObject({
+      lead_sources: [], pain_points: [], stakeholders: [], decision_blockers: [], decision_stakeholders: [], buying_signals: [], recurring_objections: [],
+    });
+  });
+
+  it("keeps explicit facts when a later inferred capture disagrees", () => {
+    const verifiedSolution = reduceLotLiftCallState(newLotLiftCallState("call_1"), {
+      type: "capture", field: "current_solution", fact: verified("VinSolutions"),
+    });
+    const afterInference = reduceLotLiftCallState(verifiedSolution, {
+      type: "capture", field: "current_solution", fact: inferred("DealerSocket"),
+    });
+
+    expect(afterInference.current_solution).toEqual(verified("VinSolutions"));
+  });
+
+  it("keeps evidence on multi-value state and counts recurring objections", () => {
+    const withSource = reduceLotLiftCallState(newLotLiftCallState("call_1"), {
+      type: "append", field: "lead_sources", fact: verified("Autotrader"),
+    });
+    const withObjection = reduceLotLiftCallState(withSource, {
+      type: "recurring-objection", fact: verified("price", "segment-3"),
+    });
+    const repeated = reduceLotLiftCallState(withObjection, {
+      type: "recurring-objection", fact: inferred("price"),
+    });
+
+    expect(repeated.lead_sources).toEqual([verified("Autotrader")]);
+    expect(repeated.recurring_objections).toEqual([{ ...verified("price", "segment-3"), count: 2, resolved: false }]);
+  });
+
+  it("preserves DNC evidence and blocks automatic outreach", () => {
+    const dnc = reduceLotLiftCallState(newLotLiftCallState("call_1"), {
+      type: "do-not-contact",
+      at: "2026-09-07T12:00:00.000Z",
+      evidence: { segment_id: "dnc-1", text: "Please don't call again." },
+    });
+    const patched = applyLotLiftAiStatePatch(dnc, {
+      do_not_contact: false,
+      dnc_at: null,
+      dnc_evidence: null,
+      current_solution: inferred("DealerSocket"),
+    });
+
+    expect(patched).toMatchObject({
+      do_not_contact: true,
+      dnc_at: "2026-09-07T12:00:00.000Z",
+      dnc_evidence: { segment_id: "dnc-1", text: "Please don't call again." },
+    });
+    expect(lotLiftAutomationEligibility(patched)).toEqual({ call_eligible: false, sales_email_eligible: false, automatic_follow_up_eligible: false });
   });
 });
 
@@ -34,70 +104,37 @@ describe("LotLift Call State lifecycle", () => {
     };
   }
 
-  it("keeps Call B independent after Call A is retired", async () => {
+  it("serializes evidence-aware events into monotonic durable revisions", async () => {
     const disk = storage();
     const manager = new LotLiftCallStateManager(disk);
-    manager.record("call-a", "a-budget", { type: "objection", kind: "price", evidence: { segment_id: "a-budget", text: "No budget." } });
-    await manager.retire("call-a");
-    manager.record("call-b", "b-crm", { type: "objection", kind: "existing-solution", evidence: { segment_id: "b-crm", text: "We have a CRM." } });
-    await manager.flush("call-b");
-
-    expect(disk.states.get("call-a")?.recurring_objections.map(({ kind }) => kind)).toEqual(["price"]);
-    expect(disk.states.get("call-b")?.recurring_objections.map(({ kind }) => kind)).toEqual(["existing-solution"]);
-  });
-
-  it("serializes two rapid events without a revision conflict", async () => {
-    const disk = storage();
-    const manager = new LotLiftCallStateManager(disk);
-    manager.record("call-a", "one", { type: "pain", value: "one" });
-    manager.record("call-a", "two", { type: "pain", value: "two" });
-    await manager.flush("call-a");
-
-    expect(disk.saved.map(({ revision }) => revision)).toEqual([1, 2]);
-    expect(disk.states.get("call-a")?.quantified_pain).toEqual(["one", "two"]);
-  });
-
-  it("serializes rapid events into monotonic durable revisions", async () => {
-    const disk = storage();
-    const manager = new LotLiftCallStateManager(disk);
-    for (const [id, value] of [["one", "one"], ["two", "two"], ["three", "three"]] as const) {
-      manager.record("call-a", id, { type: "pain", value });
-    }
+    manager.record("call-a", "one", { type: "append", field: "pain_points", fact: verified("Leads sit overnight", "one") });
+    manager.record("call-a", "two", { type: "capture", field: "workflow_owner", fact: verified("BDC manager", "two") });
     await manager.flush("call-a");
 
     expect(disk.saved.map(({ revision }) => revision)).toEqual([1, 2, 3]);
-    expect(disk.states.get("call-a")?.quantified_pain).toEqual(["one", "two", "three"]);
+    expect(disk.states.get("call-a")).toMatchObject({
+      pain_points: [verified("Leads sit overnight", "one")],
+      workflow_owner: verified("BDC manager", "two"),
+    });
   });
 
-  it("logs a rejected write and continues persisting later events", async () => {
+  it("persists an empty state when a call starts", async () => {
     const disk = storage();
-    let reject = true;
-    const warnings: string[] = [];
-    const manager = new LotLiftCallStateManager({
-      ...disk,
-      save: async (state) => {
-        if (reject) {
-          reject = false;
-          throw new Error("disk unavailable");
-        }
-        return disk.save(state);
-      },
-    }, (message) => warnings.push(message));
-    manager.record("call-a", "one", { type: "pain", value: "one" });
-    manager.record("call-a", "two", { type: "pain", value: "two" });
-    await manager.flush("call-a");
-
-    expect(warnings).toContain("LotLift Call State save failed");
-    expect(disk.states.get("call-a")?.quantified_pain).toEqual(["one", "two"]);
-  });
-
-  it("reloads v1 state for a repeated manager initialization", async () => {
-    const saved = { ...newLotLiftCallState("call-a"), revision: 1, authority: "owner" };
-    const disk = storage({ "call-a": saved });
     const manager = new LotLiftCallStateManager(disk);
     manager.activate("call-a");
     await manager.flush("call-a");
 
-    expect(manager.stateFor("call-a")).toEqual(saved);
+    expect(disk.states.get("call-a")).toMatchObject({ call_id: "call-a", revision: 1 });
+  });
+
+  it("reloads the expanded schema without losing captured evidence", async () => {
+    const saved = reduceLotLiftCallState(newLotLiftCallState("call-a"), {
+      type: "capture", field: "authority", fact: verified("General manager"),
+    });
+    const manager = new LotLiftCallStateManager(storage({ "call-a": { ...saved, revision: 1 } }));
+    manager.activate("call-a");
+    await manager.flush("call-a");
+
+    expect(manager.stateFor("call-a")?.authority).toEqual(verified("General manager"));
   });
 });

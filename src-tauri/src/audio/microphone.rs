@@ -31,6 +31,8 @@ pub fn list_input_devices() -> Vec<String> {
 /// default when `device_name` is `None`/empty.
 pub struct Microphone {
     pub device_name: Option<String>,
+    /// Meeting-only switch. Muted audio never reaches transcription, recording, or coaching.
+    pub muted: Option<Arc<AtomicBool>>,
 }
 
 impl AudioSource for Microphone {
@@ -40,8 +42,9 @@ impl AudioSource for Microphone {
         running: Arc<AtomicBool>,
     ) -> Result<JoinHandle<()>> {
         let device_name = self.device_name.clone();
+        let muted = self.muted.clone();
         let handle = std::thread::spawn(move || {
-            if let Err(e) = run(device_name, tx, running) {
+            if let Err(e) = run(device_name, muted, tx, running) {
                 eprintln!("[mic] capture stopped: {e}");
             }
         });
@@ -51,6 +54,7 @@ impl AudioSource for Microphone {
 
 fn run(
     device_name: Option<String>,
+    muted: Option<Arc<AtomicBool>>,
     tx: UnboundedSender<Vec<i16>>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
@@ -84,9 +88,15 @@ fn run(
 
     // The cpal stream is !Send on macOS, so it lives entirely on this thread.
     let stream = match sample_format {
-        cpal::SampleFormat::F32 => build_stream::<f32>(&device, &config, channels, in_rate, tx)?,
-        cpal::SampleFormat::I16 => build_stream::<i16>(&device, &config, channels, in_rate, tx)?,
-        cpal::SampleFormat::U16 => build_stream::<u16>(&device, &config, channels, in_rate, tx)?,
+        cpal::SampleFormat::F32 => {
+            build_stream::<f32>(&device, &config, channels, in_rate, muted.clone(), tx)?
+        }
+        cpal::SampleFormat::I16 => {
+            build_stream::<i16>(&device, &config, channels, in_rate, muted.clone(), tx)?
+        }
+        cpal::SampleFormat::U16 => {
+            build_stream::<u16>(&device, &config, channels, in_rate, muted, tx)?
+        }
         other => return Err(anyhow!("unsupported sample format: {other:?}")),
     };
     stream.play()?;
@@ -106,6 +116,7 @@ fn build_stream<T>(
     config: &cpal::StreamConfig,
     channels: usize,
     in_rate: u32,
+    muted: Option<Arc<AtomicBool>>,
     tx: UnboundedSender<Vec<i16>>,
 ) -> Result<cpal::Stream>
 where
@@ -116,6 +127,12 @@ where
     let stream = device.build_input_stream(
         config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
+            if muted
+                .as_ref()
+                .is_some_and(|muted| muted.load(Ordering::SeqCst))
+            {
+                return;
+            }
             // Downmix interleaved frames to mono f32.
             let frames = data.len() / channels.max(1);
             let mut mono = Vec::with_capacity(frames);

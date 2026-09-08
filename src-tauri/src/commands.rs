@@ -116,6 +116,7 @@ pub struct MeetingState {
     /// is transcribed, recorded or billed, but the capture + sockets stay open
     /// so resume is instant. Reset on every start.
     meeting_paused: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    meeting_mic_muted: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// List available microphone input device names (for the Settings picker).
@@ -144,6 +145,7 @@ pub fn start_mic_test(
     };
     let mic = Microphone {
         device_name: input_device,
+        muted: None,
     };
     let mut rx = match spawn_capture(&coord, MicUser::MicTest, mic, gate, "test") {
         Ok(rx) => rx,
@@ -191,6 +193,13 @@ pub fn meeting_active(coord: State<MicCoordinator>) -> bool {
 /// does NOT emit `meeting://status` — the capture is still live, so surfaces
 /// keyed on that event (the Settings mic lock) must keep treating the meeting
 /// as active.
+#[tauri::command]
+pub fn set_meeting_mic_muted(state: State<MeetingState>, muted: bool) {
+    state
+        .meeting_mic_muted
+        .store(muted, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 pub fn set_meeting_paused(state: State<MeetingState>, paused: bool) {
     state
@@ -251,6 +260,9 @@ pub fn start_meeting(
     state
         .meeting_paused
         .store(false, std::sync::atomic::Ordering::SeqCst);
+    state
+        .meeting_mic_muted
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     let meeting_paused = state.meeting_paused.clone();
     // Drop any (finished) session handles from a prior meeting before this one fills in.
     state.tasks.lock().unwrap().clear();
@@ -282,6 +294,7 @@ pub fn start_meeting(
     {
         let mic = Microphone {
             device_name: input_device,
+            muted: Some(state.meeting_mic_muted.clone()),
         };
         let sys = crate::audio::system_macos::SystemAudio { app: app.clone() };
         // Shared far-end state: the system-audio tap feeds it, the mic prosody
@@ -414,6 +427,7 @@ pub fn start_meeting(
     {
         let mic = Microphone {
             device_name: input_device,
+            muted: Some(state.meeting_mic_muted.clone()),
         };
         if let Ok(rx) = spawn_capture(&coord, MicUser::Meeting, mic, gate.clone(), "me") {
             // No system capture on this platform → no far-end reference to gate on.

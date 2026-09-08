@@ -1,85 +1,232 @@
 import { invoke } from "@tauri-apps/api/core";
 import { log } from "../log";
 
-export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 1;
+export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 4;
 
 export interface LotLiftEvidence {
   segment_id: string;
   text: string;
 }
 
-export interface LotLiftRecurringObjection {
-  kind: string;
+export type LotLiftFactStatus = "verified" | "inferred" | "unknown";
+
+/** A captured value is only verified when the prospect said it in the attached segment. */
+export interface LotLiftFieldValue<T> {
+  value: T | null;
+  status: LotLiftFactStatus;
+  evidence: LotLiftEvidence | null;
+}
+
+export interface LotLiftRecurringObjection extends LotLiftFieldValue<string> {
   count: number;
   resolved: boolean;
-  evidence: LotLiftEvidence[];
 }
+
+export type LotLiftScalarField =
+  | "dealership"
+  | "contact_name"
+  | "role"
+  | "phone"
+  | "email"
+  | "current_solution"
+  | "lead_arrival_point"
+  | "workflow_owner"
+  | "after_hours_process"
+  | "visibility_process"
+  | "authority"
+  | "urgency"
+  | "renewal_date"
+  | "close_opportunity"
+  | "fit_status"
+  | "disqualification_reason"
+  | "next_action"
+  | "next_action_at";
+
+export type LotLiftListField =
+  | "lead_sources"
+  | "pain_points"
+  | "quantified_pain"
+  | "stakeholders"
+  | "prior_answers"
+  | "buying_signals"
+  | "commitments"
+  | "open_questions";
 
 export interface LotLiftCallState {
   schema_version: number;
   call_id: string;
   revision: number;
-  current_solution: string | null;
-  quantified_pain: string[];
-  authority: string | null;
-  urgency: string | null;
+  dealership: LotLiftFieldValue<string>;
+  contact_name: LotLiftFieldValue<string>;
+  role: LotLiftFieldValue<string>;
+  phone: LotLiftFieldValue<string>;
+  email: LotLiftFieldValue<string>;
+  lead_sources: LotLiftFieldValue<string>[];
+  current_solution: LotLiftFieldValue<string>;
+  lead_arrival_point: LotLiftFieldValue<string>;
+  workflow_owner: LotLiftFieldValue<string>;
+  after_hours_process: LotLiftFieldValue<string>;
+  visibility_process: LotLiftFieldValue<string>;
+  pain_points: LotLiftFieldValue<string>[];
+  quantified_pain: LotLiftFieldValue<string>[];
+  authority: LotLiftFieldValue<string>;
+  stakeholders: LotLiftFieldValue<string>[];
+  urgency: LotLiftFieldValue<string>;
+  renewal_date: LotLiftFieldValue<string>;
   recurring_objections: LotLiftRecurringObjection[];
-  prior_answers: string[];
-  commitments: string[];
-  open_questions: string[];
+  stated_readiness: LotLiftFieldValue<string>;
+  decision_blockers: LotLiftFieldValue<string>[];
+  decision_stakeholders: LotLiftFieldValue<string>[];
+  prior_answers: LotLiftFieldValue<string>[];
+  buying_signals: LotLiftFieldValue<string>[];
+  commitments: LotLiftFieldValue<string>[];
+  open_questions: LotLiftFieldValue<string>[];
+  close_opportunity: LotLiftFieldValue<string>;
+  fit_status: LotLiftFieldValue<string>;
+  disqualification_reason: LotLiftFieldValue<string>;
+  do_not_contact: boolean;
+  dnc_at: string | null;
+  dnc_evidence: LotLiftEvidence | null;
+  next_action: LotLiftFieldValue<string>;
+  next_action_at: LotLiftFieldValue<string>;
 }
+
+export const unknownLotLiftField = <T>(): LotLiftFieldValue<T> => ({ value: null, status: "unknown", evidence: null });
 
 export function newLotLiftCallState(callId: string): LotLiftCallState {
   return {
     schema_version: LOTLIFT_CALL_STATE_SCHEMA_VERSION,
     call_id: callId,
     revision: 0,
-    current_solution: null,
+    dealership: unknownLotLiftField(),
+    contact_name: unknownLotLiftField(),
+    role: unknownLotLiftField(),
+    phone: unknownLotLiftField(),
+    email: unknownLotLiftField(),
+    lead_sources: [],
+    current_solution: unknownLotLiftField(),
+    lead_arrival_point: unknownLotLiftField(),
+    workflow_owner: unknownLotLiftField(),
+    after_hours_process: unknownLotLiftField(),
+    visibility_process: unknownLotLiftField(),
+    pain_points: [],
     quantified_pain: [],
-    authority: null,
-    urgency: null,
+    authority: unknownLotLiftField(),
+    stakeholders: [],
+    urgency: unknownLotLiftField(),
+    renewal_date: unknownLotLiftField(),
     recurring_objections: [],
+    stated_readiness: unknownLotLiftField(),
+    decision_blockers: [],
+    decision_stakeholders: [],
     prior_answers: [],
+    buying_signals: [],
     commitments: [],
     open_questions: [],
+    close_opportunity: unknownLotLiftField(),
+    fit_status: unknownLotLiftField(),
+    disqualification_reason: unknownLotLiftField(),
+    do_not_contact: false,
+    dnc_at: null,
+    dnc_evidence: null,
+    next_action: unknownLotLiftField(),
+    next_action_at: unknownLotLiftField(),
   };
 }
 
 export type CallStateEvent =
-  | { type: "current-solution"; value: string }
-  | { type: "pain"; value: string }
-  | { type: "authority"; value: string }
-  | { type: "urgency"; value: string }
-  | { type: "objection"; kind: string; evidence: LotLiftEvidence }
-  | { type: "answer"; value: string }
-  | { type: "commitment"; value: string }
-  | { type: "open-question"; value: string }
-  | { type: "question-answered"; value: string };
+  | { type: "capture"; field: LotLiftScalarField; fact: LotLiftFieldValue<string> }
+  | { type: "append"; field: LotLiftListField; fact: LotLiftFieldValue<string> }
+  | { type: "recurring-objection"; fact: LotLiftFieldValue<string> }
+  | { type: "decision-context"; readiness?: LotLiftFieldValue<string>; blockers: LotLiftFieldValue<string>[]; stakeholders: LotLiftFieldValue<string>[] }
+  | { type: "do-not-contact"; at: string; evidence: LotLiftEvidence };
 
-const appendUnique = (values: string[], value: string) =>
-  value.trim() && !values.some((existing) => existing.toLowerCase() === value.trim().toLowerCase())
-    ? [...values, value.trim()]
-    : values;
+const scalarFields: readonly LotLiftScalarField[] = [
+  "dealership", "contact_name", "role", "phone", "email", "current_solution", "lead_arrival_point",
+  "workflow_owner", "after_hours_process", "visibility_process", "authority", "urgency", "renewal_date",
+  "close_opportunity", "fit_status", "disqualification_reason", "next_action", "next_action_at",
+];
 
-/** Deterministic reducer: all state changes remain evidence-addressable and revisioned. */
+const listFields: readonly LotLiftListField[] = [
+  "lead_sources", "pain_points", "quantified_pain", "stakeholders", "prior_answers", "buying_signals", "commitments", "open_questions",
+];
+
+function mergeLotLiftField<T>(existing: LotLiftFieldValue<T>, incoming: LotLiftFieldValue<T>): LotLiftFieldValue<T> {
+  return existing.status === "verified" && incoming.status !== "verified" ? existing : incoming;
+}
+
+function mergeLotLiftFieldList(existing: LotLiftFieldValue<string>[], incoming: LotLiftFieldValue<string>[]): LotLiftFieldValue<string>[] {
+  return incoming.reduce((merged, fact) => {
+    if (!fact.value) return merged;
+    const index = merged.findIndex((item) => item.value?.toLowerCase() === fact.value?.toLowerCase());
+    return index < 0
+      ? [...merged, fact]
+      : merged.map((item, itemIndex) => itemIndex === index ? mergeLotLiftField(item, fact) : item);
+  }, existing);
+}
+
+export type LotLiftAutomationEligibility = {
+  call_eligible: boolean;
+  sales_email_eligible: boolean;
+  automatic_follow_up_eligible: boolean;
+};
+
+/** DNC is the single suppression source for future Frappe contact sync. */
+export function lotLiftAutomationEligibility(state: LotLiftCallState): LotLiftAutomationEligibility {
+  const eligible = !state.do_not_contact;
+  return { call_eligible: eligible, sales_email_eligible: eligible, automatic_follow_up_eligible: eligible };
+}
+
+/** LLM output cannot change identity, revision, or deterministic suppression facts. */
+export function applyLotLiftAiStatePatch(state: LotLiftCallState, patch: Partial<LotLiftCallState>): LotLiftCallState {
+  const next = { ...state };
+  for (const field of scalarFields) {
+    const incoming = patch[field];
+    if (incoming) next[field] = mergeLotLiftField(state[field], incoming);
+  }
+  for (const field of listFields) {
+    const incoming = patch[field];
+    if (incoming) next[field] = mergeLotLiftFieldList(state[field], incoming);
+  }
+  if (patch.recurring_objections) {
+    next.recurring_objections = patch.recurring_objections.reduce((merged, objection) => {
+      const index = merged.findIndex((item) => item.value?.toLowerCase() === objection.value?.toLowerCase());
+      return index < 0
+        ? [...merged, objection]
+        : merged.map((item, itemIndex) => itemIndex === index
+          ? { ...mergeLotLiftField(item, objection), count: Math.max(item.count, objection.count), resolved: item.resolved || objection.resolved }
+          : item);
+    }, state.recurring_objections);
+  }
+  return next;
+}
+
+/** Deterministic reducer: verified prospect facts resist later inferred replacements. */
 export function reduceLotLiftCallState(state: LotLiftCallState, event: CallStateEvent): LotLiftCallState {
   switch (event.type) {
-    case "current-solution": return { ...state, current_solution: event.value.trim() || state.current_solution };
-    case "pain": return { ...state, quantified_pain: appendUnique(state.quantified_pain, event.value) };
-    case "authority": return { ...state, authority: event.value.trim() || state.authority };
-    case "urgency": return { ...state, urgency: event.value.trim() || state.urgency };
-    case "answer": return { ...state, prior_answers: appendUnique(state.prior_answers, event.value) };
-    case "commitment": return { ...state, commitments: appendUnique(state.commitments, event.value) };
-    case "open-question": return { ...state, open_questions: appendUnique(state.open_questions, event.value) };
-    case "question-answered": return { ...state, open_questions: state.open_questions.filter((question) => question !== event.value) };
-    case "objection": {
-      const existing = state.recurring_objections.find((objection) => objection.kind === event.kind);
-      const recurring_objections = existing
-        ? state.recurring_objections.map((objection) => objection === existing
-          ? { ...objection, count: objection.count + 1, evidence: [...objection.evidence, event.evidence] }
-          : objection)
-        : [...state.recurring_objections, { kind: event.kind, count: 1, resolved: false, evidence: [event.evidence] }];
-      return { ...state, recurring_objections };
+    case "do-not-contact": return state.do_not_contact
+      ? state
+      : { ...state, do_not_contact: true, dnc_at: event.at, dnc_evidence: event.evidence };
+    case "capture": return { ...state, [event.field]: mergeLotLiftField(state[event.field], event.fact) };
+    case "append": return { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
+    case "decision-context": {
+      const explicit = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && !!fact.value && !!fact.evidence;
+      return {
+        ...state,
+        stated_readiness: event.readiness && explicit(event.readiness) ? mergeLotLiftField(state.stated_readiness, event.readiness) : state.stated_readiness,
+        decision_blockers: mergeLotLiftFieldList(state.decision_blockers, event.blockers.filter(explicit)),
+        decision_stakeholders: mergeLotLiftFieldList(state.decision_stakeholders, event.stakeholders.filter(explicit)),
+      };
+    }
+    case "recurring-objection": {
+      const index = state.recurring_objections.findIndex((item) => item.value?.toLowerCase() === event.fact.value?.toLowerCase());
+      if (index < 0) return { ...state, recurring_objections: [...state.recurring_objections, { ...event.fact, count: 1, resolved: false }] };
+      return {
+        ...state,
+        recurring_objections: state.recurring_objections.map((item, itemIndex) => itemIndex === index
+          ? { ...mergeLotLiftField(item, event.fact), count: item.count + 1, resolved: item.resolved }
+          : item),
+      };
     }
   }
 }
@@ -115,6 +262,7 @@ const tauriCallStateStorage: LotLiftCallStateStorage = {
 export class LotLiftCallStateManager {
   private readonly calls = new Map<string, ManagedCallState>();
   private readonly retiredCallIds = new Set<string>();
+  private readonly doNotContactCallIds = new Set<string>();
 
   constructor(
     private readonly storage: LotLiftCallStateStorage = tauriCallStateStorage,
@@ -131,22 +279,36 @@ export class LotLiftCallStateManager {
       seenSegmentIds: new Set(),
     };
     this.calls.set(callId, call);
+    let hasSavedState = false;
     call.ready = this.storage.load(callId).then((saved) => {
-      if (saved) call.state = saved;
+      if (!saved) return;
+      hasSavedState = true;
+      call.state = saved;
+      if (saved.do_not_contact) this.doNotContactCallIds.add(callId);
     }).catch((error) => {
       this.onPersistFailure("LotLift Call State load failed", error, callId);
+    });
+    call.tail = call.ready.then(async () => {
+      if (hasSavedState) return;
+      try {
+        call.state = await this.storage.save(call.state);
+      } catch (error) {
+        this.onPersistFailure("LotLift Call State initial save failed", error, callId);
+      }
     });
   }
 
   /** Claims a finalized segment once across every live coach subscriber. */
-  record(callId: string, segmentId: string, event: CallStateEvent): boolean {
+  record(callId: string, segmentId: string, event: CallStateEvent | readonly CallStateEvent[]): boolean {
     this.activate(callId);
     const call = this.calls.get(callId);
     if (!call || call.seenSegmentIds.has(segmentId)) return false;
     call.seenSegmentIds.add(segmentId);
+    const events = Array.isArray(event) ? event : [event];
+    if (events.some((item) => item.type === "do-not-contact")) this.doNotContactCallIds.add(callId);
     call.tail = call.tail.then(async () => {
       await call.ready;
-      call.state = reduceLotLiftCallState(call.state, event);
+      for (const item of events) call.state = reduceLotLiftCallState(call.state, item);
       try {
         call.state = await this.storage.save(call.state);
       } catch (error) {
@@ -175,6 +337,10 @@ export class LotLiftCallStateManager {
     await call.ready;
     await call.tail;
     if (this.calls.get(callId) === call) this.calls.delete(callId);
+  }
+
+  isDoNotContact(callId: string): boolean {
+    return this.doNotContactCallIds.has(callId) || this.calls.get(callId)?.state.do_not_contact === true;
   }
 
   stateFor(callId: string): LotLiftCallState | null {

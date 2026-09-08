@@ -14,6 +14,7 @@ import { broadcastSettings, SETTINGS_NAVIGATE_EVENT } from "../lib/settingsSync"
 import { signInWithGoogle, signOut, CloudError } from "../lib/cloud/client";
 import { CLOUD_ENABLED } from "../lib/flags";
 import { Flag } from "../components/ui/flag";
+import { LOTLIFT_OLLAMA_SETUP, lotLiftLocalPreset } from "../lib/lotlift/preset";
 import {
   createOrg,
   listMyOrgs,
@@ -127,6 +128,9 @@ export function SettingsApp() {
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
   const [cat, setCat] = useState<Category>(() => categoryFromHash() ?? "basic");
+  const [parakeetHealth, setParakeetHealth] = useState<{ status: string; endpoint: string; model: string; version?: string; detail: string } | null>(null);
+  const [parakeetChanging, setParakeetChanging] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   useEffect(() => {
     if (!isTauri()) return;
     // Guard the cleanup-beats-listen() race: if unmount wins, detach the
@@ -144,6 +148,33 @@ export function SettingsApp() {
       unlisten?.();
     };
   }, []);
+  const refreshParakeetHealth = useCallback(() => {
+    if (!isTauri()) return;
+    void invoke<{ status: string; endpoint: string; model: string; version?: string; detail: string }>("local_parakeet_health")
+      .then(setParakeetHealth)
+      .catch(() => setParakeetHealth({ status: "error", endpoint: "127.0.0.1:18080", model: "mlx-community/parakeet-tdt-0.6b-v2", detail: "Could not check the local service." }));
+  }, []);
+  useEffect(() => {
+    if (settings.transcriptionProvider === "mlx-parakeet") refreshParakeetHealth();
+  }, [refreshParakeetHealth, settings.transcriptionProvider]);
+  useEffect(() => {
+    if (parakeetHealth?.status !== "starting") return;
+    const timer = globalThis.setTimeout(refreshParakeetHealth, 1_000);
+    return () => globalThis.clearTimeout(timer);
+  }, [parakeetHealth?.status, refreshParakeetHealth]);
+  async function toggleParakeet() {
+    if (!parakeetHealth || parakeetChanging) return;
+    setParakeetChanging(true);
+    try {
+      const command = ["ready", "starting"].includes(parakeetHealth.status) ? "stop_local_parakeet" : "start_local_parakeet";
+      setParakeetHealth(await invoke<{ status: string; endpoint: string; model: string; version?: string; detail: string }>(command));
+    } catch (error) {
+      setParakeetHealth((health) => health ? { ...health, status: "error", detail: error instanceof Error ? error.message : "Could not change the local service." } : health);
+    } finally {
+      setParakeetChanging(false);
+    }
+  }
+  useEffect(() => { if (isTauri()) invoke<{ installed: string[] }>("local_ollama_models").then((value) => setOllamaModels(value.installed)).catch(() => setOllamaModels([])); }, []);
   // Nav search (⑥): label OR translated keywords, so "金鑰"/"key" finds the
   // provider panel and "麥克風"/"mic" finds transcription.
   const [navQuery, setNavQuery] = useState("");
@@ -700,7 +731,7 @@ export function SettingsApp() {
               </p>
             ) : sttInfo.requiresApiKey === false ? (
               <p className="max-w-md text-[11px] text-muted-foreground">
-                Uses the local MLX-Audio server at 127.0.0.1:18080. Audio stays on this machine; no API key is sent.
+                {parakeetHealth ? `${parakeetHealth.status}: ${parakeetHealth.detail} Model: ${parakeetHealth.model}${parakeetHealth.version ? ` (${parakeetHealth.version})` : ""}.` : "Checking local MLX-Audio at 127.0.0.1:18080. Audio stays on this machine; no API key is sent."}
               </p>
             ) : (
               <Field label={t("settings.transcription.apiKey", { provider: sttInfo.label })}>
@@ -713,6 +744,7 @@ export function SettingsApp() {
                 />
               </Field>
             )}
+            <div className="max-w-md space-y-2 rounded-md border p-3 text-xs"><p className="font-medium">LotLift Local readiness</p><p>{["qwen3:4b", "qwen3:8b"].every((model) => ollamaModels.includes(model)) ? "Ollama models ready." : `Missing models: ${LOTLIFT_OLLAMA_SETUP.join(" · ")}`}</p><p>{parakeetHealth?.status === "ready" ? "Local Parakeet ready." : parakeetHealth ? `Local Parakeet: ${parakeetHealth.detail}` : "Local Parakeet will be checked after applying the preset."}</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => updateSettings(lotLiftLocalPreset(settings))}>Apply LotLift Local preset</Button>{settings.transcriptionProvider === "mlx-parakeet" && <Button size="sm" variant="outline" disabled={!parakeetHealth || parakeetChanging || parakeetHealth.status === "not_installed"} onClick={() => void toggleParakeet()}>{parakeetChanging ? "Updating…" : ["ready", "starting"].includes(parakeetHealth?.status ?? "") ? "Turn off Parakeet" : "Turn on Parakeet"}</Button>}</div></div>
             {!sttInfo.diarization && (
               <p className="max-w-md rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
                 {t("settings.transcription.noDiarizationWarning")}

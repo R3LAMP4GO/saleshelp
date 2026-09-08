@@ -96,18 +96,21 @@ export async function generateObjectResilient<OBJECT>(opts: {
   schema: z.ZodType<OBJECT>;
   system: string;
   prompt: string;
+  abortSignal?: AbortSignal;
+  maxOutputTokens?: number;
+  singleAttempt?: boolean;
 }) {
-  const { settings, workload, schema, system, prompt } = opts;
+  const { settings, workload, schema, system, prompt, abortSignal, singleAttempt = false } = opts;
   const provider = settings.llmProviders[workload];
   const providerOptions = getProviderOptions(settings, workload);
-  const maxOutputTokens = maxOutputTokensFor(settings, workload);
+  const maxOutputTokens = opts.maxOutputTokens ?? maxOutputTokensFor(settings, workload);
   const tag = { provider, workload, model: settings.models[provider][workload] };
 
   try {
-    return await generateObject({ model: getModel(settings, workload), providerOptions, schema, system, prompt, maxOutputTokens });
+    return await generateObject({ model: getModel(settings, workload), providerOptions, schema, system, prompt, maxOutputTokens, abortSignal });
   } catch (err) {
     const info = PROVIDER_BY_ID[provider];
-    const canFallback = info.kind === "openai-compatible" && (info.supportsStructuredOutputs ?? false);
+    const canFallback = !singleAttempt && info.kind === "openai-compatible" && (info.supportsStructuredOutputs ?? false);
     logAiError(canFallback ? "ai.generateObject json_schema (retrying json_object)" : "ai.generateObject", tag, err);
     const salvaged = salvageObject(err, schema);
     if (salvaged) {
@@ -123,6 +126,7 @@ export async function generateObjectResilient<OBJECT>(opts: {
         system,
         prompt,
         maxOutputTokens,
+        abortSignal,
       });
     } catch (error_) {
       logAiError("ai.generateObject json_object", tag, error_);

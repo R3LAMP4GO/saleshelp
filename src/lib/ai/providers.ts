@@ -146,8 +146,8 @@ export const PROVIDERS: ProviderInfo[] = [
     apiKeyField: "ollamaApiKey",
     keyPlaceholder: "",
     requiresKey: false,
-    models: ["qwen3", "llama3.2", "gpt-oss:20b"],
-    defaults: { realtime: "llama3.2", deep: "qwen3" },
+    models: ["qwen3:4b", "qwen3", "llama3.2", "gpt-oss:20b"],
+    defaults: { realtime: "qwen3:4b", deep: "qwen3" },
   },
   {
     id: "openrouter",

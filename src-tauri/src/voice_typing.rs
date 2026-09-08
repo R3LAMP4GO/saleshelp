@@ -200,6 +200,7 @@ fn acquire_mic(
         Begin::Started(gate) => {
             let mic = Microphone {
                 device_name: input_device,
+                muted: None,
             };
             match spawn_capture(coord, MicUser::VoiceTyping, mic, gate, "voice-typing") {
                 Ok(rx) => Ok(Some(rx)),

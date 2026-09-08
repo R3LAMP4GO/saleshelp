@@ -1,10 +1,12 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, RotateCcw, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "../../lib/store";
-import { retrieveApprovedLotLiftResponse, type ApprovedLotLiftResponse } from "../../lib/lotlift/objections";
+import { newLotLiftCallState, reduceLotLiftCallState } from "../../lib/lotlift/callState";
+import { classifyLotLiftTurn } from "../../lib/lotlift/coach";
+import { getLotLiftLiveStatus, setLotLiftLiveStatus, subscribeLotLiftLiveStatus, type LotLiftLiveStatus } from "../../lib/lotlift/liveStatus";
 
-type Turn = { id: number; text: string; response: ApprovedLotLiftResponse | null };
+type Turn = { id: number; text: string; response: { id: string; title: string; response: string; consideration: string; rule_id: string } | null };
 
 const EXAMPLE_TURNS = [
   "I need to talk to my wife before we make a decision.",
@@ -13,17 +15,25 @@ const EXAMPLE_TURNS = [
 
 export function LiveCallSimulator() {
   const openHome = useStore((state) => state.openHome);
+  const userName = useStore((state) => state.settings.userName);
   const [line, setLine] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [callState, setCallState] = useState(() => newLotLiftCallState("lotlift-simulator"));
+  const [coachState, setCoachState] = useState<LotLiftLiveStatus>(getLotLiftLiveStatus);
+  useEffect(() => subscribeLotLiftLiveStatus(() => setCoachState(getLotLiftLiveStatus())), []);
 
   const latest = turns[turns.length - 1]?.response ?? null;
-  const context = useMemo(() => turns.slice(0, -1).map((turn) => turn.text), [turns]);
 
   function addProspectLine(text: string) {
     const cleaned = text.trim();
     if (!cleaned) return;
-    const priorLines = turns.map((turn) => turn.text);
-    setTurns((current) => [...current, { id: Date.now(), text: cleaned, response: retrieveApprovedLotLiftResponse(cleaned, priorLines) }]);
+    setLotLiftLiveStatus("Thinking");
+    const segment = { id: `sim-${Date.now()}`, source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 0, text: cleaned };
+    const coaching = classifyLotLiftTurn(segment, callState, userName);
+    if (coaching) setCallState((current) => reduceLotLiftCallState(current, coaching.state));
+    const response = coaching?.response ?? null;
+    setTurns((current) => [...current, { id: Date.now(), text: cleaned, response }]);
+    queueMicrotask(() => setLotLiftLiveStatus(response ? "Suggestion ready" : "No intervention needed"));
     setLine("");
   }
 
@@ -33,11 +43,17 @@ export function LiveCallSimulator() {
   }
 
   function loadExample() {
+    let exampleState = newLotLiftCallState("lotlift-simulator");
     const exampleTurns: Turn[] = [];
-    for (const text of EXAMPLE_TURNS) {
-      exampleTurns.push({ id: Date.now() + exampleTurns.length, text, response: retrieveApprovedLotLiftResponse(text, exampleTurns.map((turn) => turn.text)) });
+    for (const [index, text] of EXAMPLE_TURNS.entries()) {
+      const segment = { id: `sim-example-${index}`, source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 0, text };
+      const coaching = classifyLotLiftTurn(segment, exampleState, userName);
+      if (coaching) exampleState = reduceLotLiftCallState(exampleState, coaching.state);
+      exampleTurns.push({ id: index, text, response: coaching?.response ?? null });
     }
     setTurns(exampleTurns);
+    setCallState(exampleState);
+    setLotLiftLiveStatus(exampleTurns[exampleTurns.length - 1]?.response ? "Suggestion ready" : "No intervention needed");
   }
 
   return (
@@ -51,7 +67,7 @@ export function LiveCallSimulator() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={openHome}><ArrowLeft className="size-4" />Back to home</Button>
-            <Button variant="outline" onClick={() => setTurns([])} disabled={turns.length === 0}><RotateCcw className="size-4" />Clear call</Button>
+            <Button variant="outline" onClick={() => { setTurns([]); setCallState(newLotLiftCallState("lotlift-simulator")); }} disabled={turns.length === 0}><RotateCcw className="size-4" />Clear call</Button>
           </div>
         </header>
 
@@ -83,18 +99,15 @@ export function LiveCallSimulator() {
 
           <aside className="rounded-lg border bg-card" aria-labelledby="response-heading" aria-live="polite">
             <div className="border-b px-4 py-3 sm:px-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Best next response</p>
-              <h2 id="response-heading" className="mt-1 text-base font-semibold">{latest?.title ?? "Waiting for an objection"}</h2>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live coach</p>
+              <h2 id="response-heading" className="mt-1 text-base font-semibold">{coachState}</h2>
             </div>
             <div className="space-y-5 p-4 sm:p-5">
               {latest ? <>
-                <p className="text-base leading-7">“{latest.response}”</p>
-                <div className="border-t pt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Context used</h3>
-                  <p className="mt-2 text-sm leading-6">{latest.consideration}</p>
-                  {context.length > 0 && <ul className="mt-3 space-y-2 border-l-2 border-foreground/30 pl-3 text-sm text-muted-foreground">{context.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>}
-                </div>
-              </> : <div className="flex min-h-44 flex-col justify-center gap-2 text-sm text-muted-foreground"><Sparkles className="size-5" aria-hidden="true" /><p>When a recognized objection arrives, one approved response appears here.</p></div>}
+                <div><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Say</h3><p className="mt-2 text-lg font-medium leading-7">{latest.response}</p></div>
+                <div className="border-t pt-4"><h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Goal</h3><p className="mt-2 text-sm leading-6">{latest.consideration}</p></div>
+                <p className="text-xs text-muted-foreground">Source: {latest.rule_id}</p>
+              </> : <div className="flex min-h-44 flex-col justify-center gap-2 text-sm text-muted-foreground"><Sparkles className="size-5" aria-hidden="true" /><p>{coachState === "Thinking" ? "Thinking…" : coachState === "Local model unavailable" ? "Local model unavailable." : coachState === "Fallback used" ? "Fallback used." : "No intervention needed."}</p></div>}
             </div>
           </aside>
         </div>

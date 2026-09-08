@@ -14,6 +14,7 @@ pub mod common;
 pub mod deepgram;
 pub mod gemini;
 pub mod mlx_parakeet;
+mod mlx_protocol;
 pub mod openai;
 pub mod soniox;
 pub mod ws;

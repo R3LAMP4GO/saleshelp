@@ -156,3 +156,197 @@ Never evade opt-out requests, pressure personal financing, contact a dealer thro
 For every meaningful prospect turn, preserve exact evidence and update only supported facts: current solution, source/workflow, quantified pain, authority, urgency/renewal date, recurring objection, prior answer, commitment, open question, buying signal, close opportunity, fit/disqualification reason, and do-not-contact instruction.
 
 A buying signal is curiosity, an acknowledged workflow gap, a request for implementation/security/pricing detail after relevance, agreement to include an authority holder, or acceptance of a scoped next step. A close opportunity requires confirmed pain/gap, viable scope, authority path, and a specific next action.
+
+## Structured policy rules
+
+Each rule uses `### namespace:name` followed by the same seven Markdown fields. The coach retrieves these fields directly; edit the policy here, not TypeScript.
+
+### objection:not-interested
+- **Intent:** Prospect declines interest or priority.
+- **When to use:** They say they are not interested, it is not a priority, or no thanks.
+- **Objective:** Learn whether coverage is genuinely complete before closing.
+- **Approved strategy:** Ask one brief workflow-coverage question, then respect a second no.
+- **Good examples:**
+  - “Fair enough. Is that because marketplace inquiries are consistently covered, or because it is not a priority right now?”
+- **Prohibited behavior:** Do not argue, feature-dump, or ask more than once after a clear second no.
+- **Exit condition:** Coverage is confirmed, or the prospect declines again.
+
+### objection:no-budget
+- **Intent:** Prospect raises price, affordability, or budget.
+- **When to use:** They mention cost, no budget, or that it is too expensive.
+- **Objective:** Isolate the actual concern before discussing scope or pricing.
+- **Approved strategy:** Ask whether the concern is monthly cost, setup effort, alternatives, or unclear return.
+- **Good examples:**
+  - “Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?”
+- **Prohibited behavior:** Do not invent pricing, guarantee ROI, or negotiate before understanding the concern.
+- **Exit condition:** A specific concern is named, or the prospect declines to continue.
+
+### objection:existing-crm
+- **Intent:** Prospect says an existing CRM, BDC, or team handles leads.
+- **When to use:** They cite a CRM, BDC, internet department, or salesperson workflow.
+- **Objective:** Verify whether ownership and after-hours coverage are genuinely complete.
+- **Approved strategy:** Ask where the inquiry lands and whether it is immediately owned.
+- **Good examples:**
+  - “When a marketplace inquiry arrives, does it land directly in that workflow and get owned immediately, or is there still an inbox and handoff?”
+- **Prohibited behavior:** Do not disparage the current system or claim LotLift replaces it.
+- **Exit condition:** The workflow is confirmed covered, or a specific coverage gap appears.
+
+### objection:spouse-partner
+- **Intent:** Prospect needs a spouse, partner, or co-owner involved.
+- **When to use:** They say another decision-maker must weigh in.
+- **Objective:** Learn the decision criteria and create a focused joint next step.
+- **Approved strategy:** Ask what the other person needs to know, then invite them to the decision call.
+- **Good examples:**
+  - “What will they want to know before they are comfortable?”
+- **Prohibited behavior:** Do not pressure the prospect to decide without the stakeholder.
+- **Exit condition:** A joint next step is scheduled, or the decision criteria are captured.
+
+### objection:send-information
+- **Intent:** Prospect requests information by email.
+- **When to use:** They ask to send information, a deck, or details.
+- **Objective:** Send relevant material and secure a real follow-up.
+- **Approved strategy:** Ask what they need to understand before choosing the material.
+- **Good examples:**
+  - “What are you most trying to understand: current-process fit, supported sources, security, or pricing?”
+- **Prohibited behavior:** Do not send generic material without a question or treat sending as a next step.
+- **Exit condition:** A topic and follow-up are agreed, or the prospect declines follow-up.
+
+### objection:call-later
+- **Intent:** Prospect asks for a later conversation.
+- **When to use:** They say call later, another time, or after an event.
+- **Objective:** Capture a real trigger and a specific next action.
+- **Approved strategy:** Ask what changes later, then record a real date or event.
+- **Good examples:**
+  - “What is changing later that would make this a better conversation then?”
+- **Prohibited behavior:** Do not create a vague follow-up without a date, event, or consent.
+- **Exit condition:** A concrete time or trigger is captured, or the call is closed out.
+
+### objection:need-to-think
+- **Intent:** Prospect wants time before deciding.
+- **When to use:** They say they need to think about it.
+- **Objective:** Identify the unresolved decision concern.
+- **Approved strategy:** Ask for the biggest thing they need to feel certain about.
+- **Good examples:**
+  - “What is the biggest thing you want to feel certain about before deciding?”
+- **Prohibited behavior:** Do not force urgency or pretend uncertainty is resolved.
+- **Exit condition:** The concern and next step are explicit, or the prospect declines.
+
+### objection:busy
+- **Intent:** Prospect is unavailable now.
+- **When to use:** They say they are busy or in the middle of something.
+- **Objective:** Respect time while seeking a consented alternative.
+- **Approved strategy:** Offer a calmer 15-minute window or close out.
+- **Good examples:**
+  - “I do not want to pitch you in the middle of it. Is there a calmer 15-minute window this week, or should I close this out?”
+- **Prohibited behavior:** Do not continue the pitch or assume a callback is welcome.
+- **Exit condition:** A specific window is accepted, or the prospect asks to close out.
+
+### objection:competitor
+- **Intent:** Prospect uses or compares a competitor.
+- **When to use:** They name a competitor or say they are comparing options.
+- **Objective:** Learn criteria and remaining manual workflow gaps truthfully.
+- **Approved strategy:** Ask what they value and where routing, after-hours response, or appointments remain manual.
+- **Good examples:**
+  - “What made you choose them, and what does that process handle well?”
+- **Prohibited behavior:** Do not conceal limitations or make unsupported competitor claims.
+- **Exit condition:** Criteria and a relevant gap are identified, or the existing solution fully covers the need.
+
+### objection:direct-integration
+- **Intent:** Prospect requires direct CRM or DMS integration.
+- **When to use:** They ask for direct CRM/DMS integration or make it a hard requirement.
+- **Objective:** State the current limitation and disqualify cleanly if required.
+- **Approved strategy:** Explain the approved inbox-led workflow and ask whether direct integration is mandatory.
+- **Good examples:**
+  - “Today, LotLift is not a CRM or DMS integration. Is direct CRM/DMS integration a hard requirement?”
+- **Prohibited behavior:** Do not imply unsupported integration or future commitments.
+- **Exit condition:** Direct integration is not required, or the prospect is disqualified.
+
+### objection:do-not-contact
+- **Intent:** Prospect requests no further contact.
+- **When to use:** They ask not to be called, removed, or taken off the list.
+- **Objective:** Confirm suppression and end the call.
+- **Approved strategy:** Acknowledge once, preserve exact evidence, and stop.
+- **Good examples:**
+  - “Absolutely. I’ll mark this number do-not-call. Thanks for letting me know.”
+- **Prohibited behavior:** Do not sell, ask a follow-up, or evade the request.
+- **Exit condition:** The acknowledgement is delivered and no further sales response occurs.
+
+### discovery:lead-source
+- **Intent:** Learn meaningful inbound inquiry sources.
+- **When to use:** Discovery has reached source coverage.
+- **Objective:** Identify paid or meaningful sources with exact evidence.
+- **Approved strategy:** Ask which online sources generate meaningful buyer inquiries.
+- **Good examples:**
+  - “Which online sources generate meaningful buyer inquiries?”
+- **Prohibited behavior:** Do not assume marketplace support or authorization.
+- **Exit condition:** Sources are named, or the prospect cannot identify any.
+
+### discovery:ownership
+- **Intent:** Learn who owns an incoming inquiry.
+- **When to use:** Sources or arrival workflow are being discussed.
+- **Objective:** Capture the named owner and handoff.
+- **Approved strategy:** Ask who owns the inquiry after it arrives.
+- **Good examples:**
+  - “Who owns an inquiry after it arrives?”
+- **Prohibited behavior:** Do not presume a team owns it without evidence.
+- **Exit condition:** Ownership is explicit, or the handoff is unclear.
+
+### discovery:after-hours
+- **Intent:** Learn coverage outside normal availability.
+- **When to use:** The current workflow or owner is known.
+- **Objective:** Identify the after-hours fallback process.
+- **Approved strategy:** Ask how ownership is decided after hours or when the usual person is off.
+- **Good examples:**
+  - “If it comes in after hours or the usual person is off, how is ownership decided?”
+- **Prohibited behavior:** Do not claim leads are missed without prospect evidence.
+- **Exit condition:** The fallback is described, or a gap is acknowledged.
+
+### discovery:visibility
+- **Intent:** Learn how the team verifies lead coverage.
+- **When to use:** Workflow ownership is being discussed.
+- **Objective:** Capture reporting, assignment, or monitoring evidence.
+- **Approved strategy:** Ask how they know every lead got a real response.
+- **Good examples:**
+  - “How do you know every lead got a real response?”
+- **Prohibited behavior:** Do not imply the team lacks visibility without evidence.
+- **Exit condition:** A verification process or gap is identified.
+
+### qualification:pain
+- **Intent:** Identify the business consequence of a workflow gap.
+- **When to use:** A source, workflow, or visibility gap has been discussed.
+- **Objective:** Capture their stated pain and any metric.
+- **Approved strategy:** Ask where the process breaks and what one converted inquiry would be worth.
+- **Good examples:**
+  - “If one extra paid inquiry turned into a real appointment and sale, what would that be worth?”
+- **Prohibited behavior:** Do not invent a value, volume, or ROI number.
+- **Exit condition:** Pain is quantified or the prospect cannot support a metric.
+
+### qualification:authority
+- **Intent:** Identify stakeholders and approval path.
+- **When to use:** A viable workflow gap exists.
+- **Objective:** Learn who must be comfortable and what they need.
+- **Approved strategy:** Ask who else is involved in a decision.
+- **Good examples:**
+  - “Who else would need to be comfortable with this workflow?”
+- **Prohibited behavior:** Do not assume the current contact can approve.
+- **Exit condition:** Stakeholders or the approval path are explicit.
+
+### qualification:urgency
+- **Intent:** Learn timing, renewal, or a forcing event.
+- **When to use:** Pain and authority are sufficiently clear.
+- **Objective:** Capture a real date or reason to act.
+- **Approved strategy:** Ask what changes or dates make the issue urgent.
+- **Good examples:**
+  - “What changes or dates make this worth addressing now?”
+- **Prohibited behavior:** Do not manufacture urgency.
+- **Exit condition:** A date, renewal, event, or lack of urgency is explicit.
+
+### close:workflow-check
+- **Intent:** Book a Lead Response Workflow Check.
+- **When to use:** There is confirmed pain or uncertainty, viable scope, and an authority path.
+- **Objective:** Agree a specific 15-minute next step.
+- **Approved strategy:** Offer two time windows and confirm time, source, and email.
+- **Good examples:**
+  - “Would Tuesday morning or Thursday afternoon be better for 15 minutes?”
+- **Prohibited behavior:** Do not demo before confirmed relevance or force an open-ended trial.
+- **Exit condition:** A specific meeting is booked, or the prospect declines.

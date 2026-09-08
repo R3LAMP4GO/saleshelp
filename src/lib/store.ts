@@ -139,6 +139,22 @@ const DEFAULT_SETTINGS: Settings = {
   sonioxApiKey: "",
   deepgramApiKey: "",
   assemblyaiApiKey: "",
+  frappe: {
+    enabled: false,
+    baseUrl: "",
+    authMethod: "token",
+    credentialReference: "",
+    leadDoctype: "Lead",
+    identityField: "mobile_no",
+    identitySource: "phone",
+    fieldMapping: {
+      lead_name: "lead_name", contact_name: "first_name", phone: "mobile_no", email: "email_id", role: "job_title",
+      current_solution: "custom_current_solution", qualification_facts: "custom_lotlift_qualification",
+      call_outcome: "custom_lotlift_call_outcome", do_not_contact: "custom_do_not_contact",
+      next_action: "custom_lotlift_next_action", next_action_at: "custom_lotlift_next_action_at",
+      final_summary: "custom_lotlift_summary", lotlift_call_id: "custom_lotlift_call_id",
+    },
+  },
   inputDevice: "",
   // Recordings analyze themselves as they always have; turning this off hands
   // analysis to an external AI over MCP. See Settings.autoStudyAnalysis.

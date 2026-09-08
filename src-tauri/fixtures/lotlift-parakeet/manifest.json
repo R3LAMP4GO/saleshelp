@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "format": {
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "encoding": "pcm_s16le"
+  },
+  "provenance": {
+    "generated_on": "2026-09-08",
+    "generator": "macOS say",
+    "voice": "Samantha (en_US)",
+    "rate_words_per_minute": 175,
+    "conversion": "afconvert WAVE LEI16@16000 mono; extracted WAVE data chunk"
+  },
+  "fixtures": [
+    {
+      "label": "me",
+      "file": "me.pcm",
+      "spoken_text": "I would like to schedule a test drive tomorrow.",
+      "expected_normalized_text": "i would like to schedule a test drive tomorrow",
+      "duration_ms": 2353,
+      "sha256": "e0078b7f9499247617938dfb657790f7545f9bd58214e58220a4c6d48f65f598"
+    },
+    {
+      "label": "them",
+      "file": "them.pcm",
+      "spoken_text": "That price is too high for me.",
+      "expected_normalized_text": "that price is too high for me",
+      "duration_ms": 1601,
+      "sha256": "e72c0286788f576a63ce9c119540560f5b46f75bd158cd8ee045ae966ea97198"
+    }
+  ]
+}

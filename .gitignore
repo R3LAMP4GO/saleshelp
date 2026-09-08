@@ -45,3 +45,6 @@ ios/ParleyKit/.build/
 
 # Python bytecode, e.g. from py_compile checks on .github/scripts
 __pycache__/
+
+# Opt-in local transcription benchmark reports.
+tmp/lotlift-parakeet-bench/

@@ -1,61 +1,45 @@
-import type { LotLiftPlaybookSection } from "./playbook";
+import { lotLiftPlaybookRule, type LotLiftPlaybookRuleId } from "./playbook";
 
 export interface ApprovedLotLiftResponse {
-  id: "not-interested" | "price" | "price-with-spouse" | "existing-solution" | "do-not-call";
+  id: string;
   title: string;
   response: string;
   consideration: string;
-  rule: LotLiftPlaybookSection[];
+  rule_id: LotLiftPlaybookRuleId;
 }
 
-const RESPONSES: Array<ApprovedLotLiftResponse & { pattern: RegExp }> = [
-  {
-    id: "do-not-call",
-    title: "Do-not-call request",
-    pattern: /\b(take (me|us) off|do not call|don't call|remove (me|us))\b/i,
-    response: "Absolutely. I’ll mark this number do-not-call. Thanks for letting me know.",
-    consideration: "Confirm the opt-out and end the call; do not continue selling.",
-    rule: ["Objection response model", "What not to say"],
-  },
-  {
-    id: "price",
-    title: "Price concern",
-    pattern: /\b(too expensive|too much money|no budget|can'?t afford|costs? too much)\b/i,
-    response: "That’s fair. Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?",
-    consideration: "Isolate the real concern before discussing scope or price.",
-    rule: ["Objection response model", "Qualification rules"],
-  },
-  {
-    id: "not-interested",
-    title: "Not interested",
-    pattern: /\b(not interested|not a priority|no thanks)\b/i,
-    response: "Fair enough. Before I close this out, is that because marketplace inquiries are already consistently covered there, or because it is not a priority right now?",
-    consideration: "Ask once to understand the reason, then honor a second no.",
-    rule: ["Objection response model", "What not to say"],
-  },
-  {
-    id: "existing-solution",
-    title: "Existing solution",
-    pattern: /\b(crm|bdc|internet department|salespeople handle|already handle)\b/i,
-    response: "That makes sense. When a marketplace inquiry arrives, does it land directly in that workflow and get owned immediately, or is there still an inbox and handoff?",
-    consideration: "Test coverage respectfully; disqualify cleanly if their process truly covers it.",
-    rule: ["Objection response model", "Discovery sequence"],
-  },
+type ObjectionRoute = {
+  id: string;
+  rule_id: Exclude<LotLiftPlaybookRuleId, "objection:do-not-contact">;
+  pattern: RegExp;
+};
+
+const ROUTES: ObjectionRoute[] = [
+  { id: "direct-integration", rule_id: "objection:direct-integration", pattern: /\b(crm|dms).{0,24}\b(integration|integrate)\b|\bdirect (?:crm|dms)\b/i },
+  { id: "send-information", rule_id: "objection:send-information", pattern: /\b(send|email).{0,24}\b(info|information|details|deck)\b/i },
+  { id: "call-later", rule_id: "objection:call-later", pattern: /\b(call (?:me )?later|try (?:me )?later|another time)\b/i },
+  { id: "need-to-think", rule_id: "objection:need-to-think", pattern: /\b(need to think|think about it|sleep on it)\b/i },
+  { id: "spouse-partner", rule_id: "objection:spouse-partner", pattern: /\b(wife|husband|spouse|partner)\b/i },
+  { id: "busy", rule_id: "objection:busy", pattern: /\b(busy|in the middle of|bad time)\b/i },
+  { id: "competitor", rule_id: "objection:competitor", pattern: /\b(competitor|already use|using another|other provider)\b/i },
+  { id: "price", rule_id: "objection:no-budget", pattern: /\b(too expensive|too much money|no budget|can'?t afford|costs? too much)\b/i },
+  { id: "not-interested", rule_id: "objection:not-interested", pattern: /\b(not interested|not a priority|no thanks)\b/i },
+  { id: "existing-solution", rule_id: "objection:existing-crm", pattern: /\b(crm|bdc|internet department|salespeople handle|already handle)\b/i },
 ];
 
-/** Deterministic local retrieval that keeps prior decision-maker context in scope. */
+function responseFor(route: ObjectionRoute): ApprovedLotLiftResponse {
+  const rule = lotLiftPlaybookRule(route.rule_id);
+  const response = rule.good_examples[0];
+  if (!response) throw new Error(`LotLift playbook rule ${route.rule_id} has no approved example.`);
+  return { id: route.id, title: rule.intent, response, consideration: rule.objective, rule_id: route.rule_id };
+}
+
+/** Deterministic route matching; all approved language is retrieved from the Markdown playbook. */
 export function retrieveApprovedLotLiftResponse(text: string, priorProspectLines: readonly string[] = []): ApprovedLotLiftResponse | null {
-  const matched = RESPONSES.find(({ pattern }) => pattern.test(text));
-  if (!matched) return null;
+  const route = ROUTES.find(({ pattern }) => pattern.test(text));
+  if (!route) return null;
   const hasSpouseContext = priorProspectLines.some((line) => /\b(wife|husband|spouse|partner)\b/i.test(line));
-  if (matched.id === "price" && hasSpouseContext) {
-    return {
-      ...matched,
-      id: "price-with-spouse",
-      title: "Price concern with spouse context",
-      response: "That makes sense. When you talk with your wife, is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?",
-      consideration: "Keep the stated decision-maker context, then isolate the real concern before discussing scope or price.",
-    };
-  }
-  return matched;
+  return route.rule_id === "objection:no-budget" && hasSpouseContext
+    ? responseFor({ id: "price-with-spouse", rule_id: "objection:spouse-partner", pattern: /./ })
+    : responseFor(route);
 }

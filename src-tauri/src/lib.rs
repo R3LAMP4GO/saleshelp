@@ -4,10 +4,14 @@ mod call_state;
 mod capture;
 mod commands;
 mod diarize;
+mod final_analysis;
+mod frappe;
 mod history;
 mod hotkey;
 mod mcp;
 mod menu;
+mod ollama;
+mod parakeet;
 mod permissions;
 mod replay;
 mod replay_audio;
@@ -118,6 +122,7 @@ pub fn run() {
             commands::stop_meeting,
             commands::cancel_meeting,
             commands::set_meeting_paused,
+            commands::set_meeting_mic_muted,
             commands::discard_recording,
             commands::list_input_devices,
             commands::start_mic_test,
@@ -126,6 +131,15 @@ pub fn run() {
             commands::save_transcript,
             call_state::load_lotlift_call_state,
             call_state::save_lotlift_call_state,
+            final_analysis::load_lotlift_final_analysis,
+            final_analysis::save_lotlift_final_analysis,
+            frappe::save_lotlift_frappe_credential,
+            frappe::enqueue_lotlift_frappe_sync,
+            frappe::deliver_lotlift_frappe_outbox,
+            parakeet::local_parakeet_health,
+            parakeet::start_local_parakeet,
+            parakeet::stop_local_parakeet,
+            ollama::local_ollama_models,
             commands::export_recording,
             commands::start_oauth_loopback,
             commands::read_templates,

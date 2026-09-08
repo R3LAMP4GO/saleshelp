@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Check, ChevronDown, Circle, Eraser, FileAudio, History, Loader2, LogOut, Mic, Minus, Pause, Pencil, Play, Settings, Square, X } from "lucide-react";
+import { Check, ChevronDown, Circle, Eraser, FileAudio, History, Loader2, LogOut, Mic, MicOff, Minus, Pause, Pencil, Play, Settings, Square, X } from "lucide-react";
 import { useStore, meetingElapsedMs, type AppMode } from "../lib/store";
 import type { Settings as AppSettings } from "../lib/types";
 import { log } from "../lib/log";
@@ -584,6 +584,7 @@ export function TitleBar({ fullscreen = false }: Readonly<{ fullscreen?: boolean
   const toggleBusyRef = useRef(false);
   const [toggleBusy, setToggleBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
 
   const recording = status === "recording";
   const paused = status === "paused";
@@ -608,6 +609,9 @@ export function TitleBar({ fullscreen = false }: Readonly<{ fullscreen?: boolean
     return () => clearInterval(id);
   }, [meetingActive, paused, meetingStartedAt]);
   const useRealPipeline = isTauri() && !!sttKey.trim();
+  useEffect(() => {
+    if (!meetingActive) setMicMuted(false);
+  }, [meetingActive]);
 
   /** Run `fn` under the shared re-entrancy guard: rapid clicks across the
    *  recorder controls (start/end/cancel) can't overlap two mutating invokes. */
@@ -667,6 +671,17 @@ export function TitleBar({ fullscreen = false }: Readonly<{ fullscreen?: boolean
       invoke("set_meeting_paused", { paused: !paused }).catch((e) =>
         log.error("meeting: pause toggle failed", { error: String(e) })
       );
+    }
+  }
+
+  function toggleMicMute() {
+    const muted = !micMuted;
+    setMicMuted(muted);
+    if (useRealPipeline) {
+      invoke("set_meeting_mic_muted", { muted }).catch((error) => {
+        setMicMuted((current) => current === muted ? !muted : current);
+        log.error("meeting: microphone toggle failed", { error: String(error) });
+      });
     }
   }
 
@@ -792,6 +807,7 @@ export function TitleBar({ fullscreen = false }: Readonly<{ fullscreen?: boolean
       </div>
 
       <div className="flex items-center gap-2">
+        {meetingActive && <button type="button" onClick={toggleMicMute} title={micMuted ? "Turn microphone on" : "Turn microphone off"} className="rounded-md border p-2 text-muted-foreground hover:text-foreground">{micMuted ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}</button>}
         <PrimaryAction
           mode={appMode}
           meetingActive={meetingActive}

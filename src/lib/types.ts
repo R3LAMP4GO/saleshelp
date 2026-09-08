@@ -278,6 +278,20 @@ export interface ProviderModels {
   deep: string;
 }
 
+export type FrappeAuthMethod = "token" | "bearer";
+
+/** Non-secret CRM routing settings. The credential itself stays in the OS keychain. */
+export interface FrappeSettings {
+  enabled: boolean;
+  baseUrl: string;
+  authMethod: FrappeAuthMethod;
+  credentialReference: string;
+  leadDoctype: string;
+  identityField: string;
+  identitySource: "phone" | "email" | "dealership" | "contact_name";
+  fieldMapping: Record<string, string>;
+}
+
 export interface Settings {
   language: AppLanguage;
   theme: AppTheme;
@@ -321,6 +335,8 @@ export interface Settings {
   sonioxApiKey: string;
   deepgramApiKey: string;
   assemblyaiApiKey: string;
+  /** CRM routing only; credentialReference resolves through the native OS keychain. */
+  frappe: FrappeSettings;
   /** Microphone input device name; empty = system default. */
   inputDevice: string;
   /** Master switch for the study/replay auto-analysis pipeline (findings →

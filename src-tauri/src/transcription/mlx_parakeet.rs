@@ -4,7 +4,6 @@
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use serde_json::json;
 use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_tungstenite::tungstenite::Message;
@@ -13,11 +12,10 @@ use super::common::{
     connect_with_headers, drive_session, LevelMeter, SegmentBuilder, TranscribeConfig, LEVEL_EVENT,
     TRANSCRIPT_EVENT,
 };
+use super::mlx_protocol;
 use super::ws::{self, Next, OnClose, WsRead, WsWrite};
 use crate::audio::resample::pcm_to_le_bytes;
 
-const MLX_PARAKEET_URL: &str = "ws://127.0.0.1:18080/v1/audio/transcriptions/realtime";
-const DEFAULT_MODEL: &str = "mlx-community/parakeet-tdt-0.6b-v2";
 const VAD_FRAME_SAMPLES: usize = 480; // 30 ms at Parley's fixed 16 kHz rate.
 
 #[derive(Deserialize, Default)]
@@ -106,23 +104,15 @@ pub async fn run_session(
     source: &'static str,
     pcm_rx: UnboundedReceiver<Vec<i16>>,
 ) -> Result<()> {
-    let ws = connect_with_headers(MLX_PARAKEET_URL, &[]).await?;
+    let ws = connect_with_headers(mlx_protocol::URL, &[]).await?;
     let (mut write, read) = ws.split();
     let model = if config.model.trim().is_empty() {
-        DEFAULT_MODEL
+        mlx_protocol::DEFAULT_MODEL
     } else {
         config.model.as_str()
     };
     write
-        .send(Message::Text(
-            json!({
-                "model": model,
-                "language": "en",
-                "sample_rate": 16_000,
-                "streaming": false,
-            })
-            .to_string(),
-        ))
+        .send(Message::Text(mlx_protocol::setup_frame(model)))
         .await?;
     eprintln!("[mlx-parakeet:{source}] connected to loopback MLX-Audio, model={model} (speaker labels unavailable)");
     drive_session(
