@@ -7,6 +7,7 @@ use std::{
     collections::BTreeMap,
     fs,
     io::Write,
+    net::IpAddr,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -18,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    call_state::{self, CallState, FactStatus},
+    call_state::FactStatus,
     final_analysis::{self, FinalCallAnalysis},
 };
 
@@ -41,11 +42,6 @@ pub struct FrappeConfig {
     pub auth_method: FrappeAuthMethod,
     /// Keychain account name. The secret is never persisted in settings or the outbox.
     pub credential_reference: String,
-    pub lead_doctype: String,
-    pub identity_field: String,
-    pub identity_source: String,
-    #[serde(default)]
-    pub field_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -110,10 +106,14 @@ fn valid_identifier(value: &str, max: usize) -> bool {
 
 fn validated_base_url(value: &str) -> Result<Url> {
     let url = Url::parse(value.trim()).context("invalid Frappe base URL")?;
-    let local = matches!(
-        url.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1")
-    );
+    let local = url.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host.ends_with(".localhost")
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    });
     if !(url.scheme() == "https" || (url.scheme() == "http" && local))
         || url.query().is_some()
         || url.fragment().is_some()
@@ -127,19 +127,7 @@ fn validated_base_url(value: &str) -> Result<Url> {
 
 fn validate_config(config: &FrappeConfig) -> Result<()> {
     validated_base_url(&config.base_url)?;
-    if !valid_identifier(&config.credential_reference, 80)
-        || !valid_identifier(&config.lead_doctype, 80)
-        || !valid_identifier(&config.identity_field, 80)
-        || !matches!(
-            config.identity_source.as_str(),
-            "phone" | "email" | "dealership" | "contact_name"
-        )
-        || config.field_mapping.len() > 32
-        || config
-            .field_mapping
-            .iter()
-            .any(|(source, target)| !valid_identifier(source, 80) || !valid_identifier(target, 80))
-    {
+    if !valid_identifier(&config.credential_reference, 80) {
         return Err(anyhow!("invalid Frappe configuration"));
     }
     Ok(())
@@ -192,50 +180,37 @@ fn verified(fact: &crate::call_state::FieldValue) -> Option<String> {
         .flatten()
 }
 
-fn field(config: &FrappeConfig, canonical: &str) -> String {
-    config
-        .field_mapping
-        .get(canonical)
-        .cloned()
-        .unwrap_or_else(|| canonical.to_owned())
+fn required(value: Option<String>, field: &str) -> Result<String> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow!("no verified {field} is available for Frappe sync"))
 }
 
-fn schedule_fields(
-    config: &FrappeConfig,
-    call_id: &str,
-    revision: u64,
-    dnc: bool,
-    action: Option<String>,
-) -> BTreeMap<String, serde_json::Value> {
-    let text = action.unwrap_or_default().to_lowercase();
-    let (kind, reason, source) = if dnc {
-        ("none", "Do-not-contact suppression", "dnc")
-    } else if text.contains("demo") || text.contains("meeting") {
-        ("meeting", "Prospect booked a meeting", "explicit_prospect")
-    } else if text.contains("not interested") {
-        ("none", "Prospect is not interested", "explicit_prospect")
-    } else if text.contains("send") || text.contains("information") {
-        (
-            "manual_review",
-            "Information requested",
-            "explicit_prospect",
-        )
+fn outcome(analysis: &FinalCallAnalysis) -> &'static str {
+    if analysis.do_not_contact {
+        return "do_not_contact";
+    }
+    let context = [
+        verified(&analysis.call_outcome),
+        verified(&analysis.next_action),
+        verified(&analysis.fit_status),
+        verified(&analysis.close_opportunity),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_lowercase();
+    if context.contains("not interested") || context.contains("no follow") {
+        "no_follow_up"
+    } else if ["demo", "meeting", "follow", "information", "send"]
+        .iter()
+        .any(|phrase| context.contains(phrase))
+    {
+        "qualified"
     } else {
-        (
-            "manual_review",
-            "No answer or no explicit next step",
-            "policy",
-        )
-    };
-    BTreeMap::from([
-        (field(config, "next_action_type"), kind.into()),
-        (field(config, "next_action_reason"), reason.into()),
-        (field(config, "next_action_source"), source.into()),
-        (
-            field(config, "lotlift_action_id"),
-            format!("{call_id}:{revision}:{kind}").into(),
-        ),
-    ])
+        "no_follow_up"
+    }
 }
 
 fn map_analysis(
@@ -243,109 +218,46 @@ fn map_analysis(
     analysis: &FinalCallAnalysis,
 ) -> Result<BTreeMap<String, serde_json::Value>> {
     validate_config(config)?;
-    let mut body = BTreeMap::new();
-    for (canonical, value) in [
-        ("lead_name", verified(&analysis.dealership)),
-        ("contact_name", verified(&analysis.contact_name)),
-        ("phone", verified(&analysis.phone)),
-        ("email", verified(&analysis.email)),
-        ("role", verified(&analysis.role)),
-        ("current_solution", verified(&analysis.current_solution)),
-        ("call_outcome", verified(&analysis.call_outcome)),
-        ("next_action", verified(&analysis.next_action)),
-        ("next_action_at", verified(&analysis.next_action_at)),
-        ("final_summary", verified(&analysis.summary)),
-    ] {
-        if let Some(value) = value {
-            body.insert(field(config, canonical), value.into());
-        }
-    }
-    let qualifications = [
-        ("authority", verified(&analysis.authority)),
-        ("urgency", verified(&analysis.urgency)),
-        ("fit_status", verified(&analysis.fit_status)),
-        ("close_opportunity", verified(&analysis.close_opportunity)),
-        ("lead_arrival_point", verified(&analysis.lead_arrival_point)),
-    ]
-    .into_iter()
-    .filter_map(|(name, value)| value.map(|value| format!("{name}: {value}")))
-    .collect::<Vec<_>>();
-    if !qualifications.is_empty() {
-        body.insert(
-            field(config, "qualification_facts"),
-            qualifications.join("; ").into(),
-        );
-    }
-    body.insert(
-        field(config, "do_not_contact"),
-        analysis.do_not_contact.into(),
-    );
-    body.extend(schedule_fields(
-        config,
-        &analysis.call_id,
-        analysis.revision,
-        analysis.do_not_contact,
-        verified(&analysis.next_action),
-    ));
-    body.insert(
-        field(config, "lotlift_call_id"),
-        analysis.call_id.clone().into(),
-    );
-    Ok(body)
-}
-
-fn map_contact_state(
-    config: &FrappeConfig,
-    state: &CallState,
-) -> Result<BTreeMap<String, serde_json::Value>> {
-    validate_config(config)?;
-    let mut body = BTreeMap::new();
-    for (canonical, value) in [
-        ("contact_name", verified(&state.contact_name)),
-        ("phone", verified(&state.phone)),
-        ("email", verified(&state.email)),
-        ("role", verified(&state.role)),
-        ("next_action", verified(&state.next_action)),
-        ("next_action_at", verified(&state.next_action_at)),
-    ] {
-        if let Some(value) = value {
-            body.insert(field(config, canonical), value.into());
-        }
-    }
-    body.extend(schedule_fields(
-        config,
-        &state.call_id,
-        state.revision,
-        state.do_not_contact,
-        verified(&state.next_action),
-    ));
-    body.insert(
-        field(config, "lotlift_call_id"),
-        state.call_id.clone().into(),
-    );
-    Ok(body)
+    Ok(BTreeMap::from([
+        (
+            "idempotency_key".into(),
+            format!("{}:{}:final_analysis", analysis.call_id, analysis.revision).into(),
+        ),
+        ("outcome".into(), outcome(analysis).into()),
+        (
+            "first_name".into(),
+            required(verified(&analysis.contact_name), "contact name")?.into(),
+        ),
+        (
+            "email".into(),
+            required(verified(&analysis.email), "email")?.into(),
+        ),
+        (
+            "summary".into(),
+            required(verified(&analysis.summary), "summary")?.into(),
+        ),
+        (
+            "organization".into(),
+            verified(&analysis.dealership).unwrap_or_default().into(),
+        ),
+        (
+            "mobile_no".into(),
+            verified(&analysis.phone).unwrap_or_default().into(),
+        ),
+        (
+            "job_title".into(),
+            verified(&analysis.role).unwrap_or_default().into(),
+        ),
+    ]))
 }
 
 fn endpoint(config: &FrappeConfig) -> Result<Url> {
     let mut url = validated_base_url(&config.base_url)?;
     let base = url.path().trim_end_matches('/');
     url.set_path(&format!(
-        "{base}/api/resource/{}",
-        config.lead_doctype.replace(' ', "%20")
+        "{base}/api/method/shared_crm.api.sync_lotlift_cold_call"
     ));
     Ok(url)
-}
-
-fn identity_value(entry: &FrappeOutboxEntry) -> Result<String> {
-    let canonical = entry.config.identity_source.as_str();
-    let target = field(&entry.config, canonical);
-    entry
-        .payload
-        .get(&target)
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("no verified Frappe identity field is available"))
 }
 
 fn authorization(config: &FrappeConfig, secret: &str) -> String {
@@ -360,73 +272,35 @@ async fn send_entry(entry: &FrappeOutboxEntry, secret: &str) -> Result<String> {
         .timeout(REQUEST_TIMEOUT)
         .build()
         .context("create Frappe client")?;
-    let mut lookup = endpoint(&entry.config)?;
-    let filters =
-        serde_json::json!([[entry.config.identity_field, "=", identity_value(entry)?]]).to_string();
-    lookup
-        .query_pairs_mut()
-        .append_pair("fields", "[\"name\"]")
-        .append_pair("filters", &filters)
-        .append_pair("limit_page_length", "1");
-    let auth = authorization(&entry.config, secret);
     let response = client
-        .get(lookup)
-        .header("Authorization", &auth)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .context("Frappe lookup request")?;
-    if response.status() == StatusCode::UNAUTHORIZED || response.status() == StatusCode::FORBIDDEN {
-        return Err(anyhow!("Frappe authentication rejected"));
-    }
-    if !response.status().is_success() {
-        return Err(anyhow!("Frappe lookup returned HTTP {}", response.status()));
-    }
-    let existing = response
-        .json::<serde_json::Value>()
-        .await
-        .context("parse Frappe lookup")?
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("name"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
-    let base = endpoint(&entry.config)?;
-    let request = if let Some(name) = existing {
-        if !valid_identifier(&name, 140) {
-            return Err(anyhow!("Frappe returned an invalid document name"));
-        }
-        let mut update_url = base.clone();
-        update_url.set_path(&format!("{}/{}", base.path(), name.replace(' ', "%20")));
-        client.put(update_url)
-    } else {
-        client.post(base)
-    };
-    let response = request
-        .header("Authorization", auth)
+        .post(endpoint(&entry.config)?)
+        .header("Authorization", authorization(&entry.config, secret))
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
         .header("Idempotency-Key", &entry.idempotency_key)
-        .json(&entry.payload)
+        .json(&serde_json::json!({ "payload": entry.payload }))
         .send()
         .await
-        .context("Frappe write request")?;
+        .context("Frappe cold-call sync request")?;
     if response.status() == StatusCode::UNAUTHORIZED || response.status() == StatusCode::FORBIDDEN {
         return Err(anyhow!("Frappe authentication rejected"));
     }
     if !response.status().is_success() {
-        return Err(anyhow!("Frappe write returned HTTP {}", response.status()));
+        return Err(anyhow!(
+            "Frappe cold-call sync returned HTTP {}",
+            response.status()
+        ));
     }
     response
         .json::<serde_json::Value>()
         .await
-        .context("parse Frappe write")?
-        .get("data")
-        .and_then(|data| data.get("name"))
+        .context("parse Frappe cold-call sync response")?
+        .get("message")
+        .and_then(|message| message.get("lead_name"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| anyhow!("Frappe write response lacks document name"))
+        .filter(|name| valid_identifier(name, 140))
+        .ok_or_else(|| anyhow!("Frappe cold-call sync response lacks lead name"))
 }
 
 fn retry_delay(attempts: u8) -> u64 {
@@ -462,45 +336,18 @@ pub fn enqueue_lotlift_frappe_sync(
     validate_config(&config).map_err(|error| error.to_string())?;
     let final_path =
         final_analysis::analysis_path(&app, &call_id).map_err(|error| error.to_string())?;
-    let contact_update = event_type.as_deref() == Some("contact_update");
-    if event_type.is_some() && !contact_update {
-        return Err("invalid Frappe event type".into());
+    if event_type.is_some() {
+        return Err("Frappe sync accepts final cold-call analysis only".into());
     }
-    let contact = || {
-        let state = call_state::load_at(
-            &call_state::state_path(&app, &call_id).map_err(|error| error.to_string())?,
-        )
+    let analysis = final_analysis::load_at(&final_path)
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| "Call State must be saved before CRM sync".to_string())?;
-        Ok::<_, String>((
-            state.call_id.clone(),
-            state.revision,
-            "contact_update",
-            map_contact_state(&config, &state).map_err(|error| error.to_string())?,
-        ))
-    };
-    let (saved_call_id, revision, event_type, payload) = if contact_update {
-        contact()?
-    } else {
-        match final_analysis::load_at(&final_path).map_err(|error| error.to_string())? {
-            Some(analysis) => {
-                let event_type = if analysis.do_not_contact {
-                    "dnc"
-                } else {
-                    "final_analysis"
-                };
-                (
-                    analysis.call_id.clone(),
-                    analysis.revision,
-                    event_type,
-                    map_analysis(&config, &analysis).map_err(|error| error.to_string())?,
-                )
-            }
-            None => contact()?,
-        }
-    };
+        .ok_or_else(|| "Final Call Analysis must be saved before CRM sync".to_string())?;
+    let saved_call_id = analysis.call_id.clone();
+    let revision = analysis.revision;
+    let event_type = "cold_call";
+    let payload = map_analysis(&config, &analysis).map_err(|error| error.to_string())?;
     let entry = FrappeOutboxEntry {
-        idempotency_key: format!("{}:{}:{event_type}", saved_call_id, revision),
+        idempotency_key: format!("{}:{}:final_analysis", saved_call_id, revision),
         call_id: saved_call_id.clone(),
         revision,
         event_type: event_type.into(),
@@ -508,13 +355,7 @@ pub fn enqueue_lotlift_frappe_sync(
         attempts: 0,
         next_attempt_at: now_secs(),
         config,
-        scheduled_action: Some(ScheduledAction {
-            id: format!("{}:{}:{}", saved_call_id, revision, event_type),
-            action_type: event_type.into(),
-            state: OutboxState::Pending,
-            reason: "CRM action state; Frappe/n8n must execute only approved workflows".into(),
-            source: "frappe_outbox".into(),
-        }),
+        scheduled_action: None,
         payload,
         remote_name: None,
         last_error: None,
@@ -641,7 +482,7 @@ mod tests {
         extract::State,
         http::StatusCode as AxumStatus,
         response::{IntoResponse, Response},
-        routing::{get, put},
+        routing::post,
         Json, Router,
     };
 
@@ -649,56 +490,43 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeFrappe {
-        lead: Arc<StdMutex<Option<String>>>,
         status: AxumStatus,
         delay: bool,
         writes: Arc<StdMutex<u8>>,
+        payload: Arc<StdMutex<Option<serde_json::Value>>>,
     }
 
-    async fn list(State(fake): State<FakeFrappe>) -> Response {
+    async fn sync(State(fake): State<FakeFrappe>, Json(body): Json<serde_json::Value>) -> Response {
         if fake.delay {
             tokio::time::sleep(Duration::from_secs(6)).await;
         }
         if fake.status != AxumStatus::OK {
             return fake.status.into_response();
         }
-        let data = fake
-            .lead
-            .lock()
-            .unwrap()
-            .clone()
-            .map(|name| vec![serde_json::json!({ "name": name })])
-            .unwrap_or_default();
-        Json(serde_json::json!({ "data": data })).into_response()
-    }
-
-    async fn create(State(fake): State<FakeFrappe>) -> Response {
-        if fake.status != AxumStatus::OK {
-            return fake.status.into_response();
-        }
-        *fake.lead.lock().unwrap() = Some("LEAD-1".into());
         *fake.writes.lock().unwrap() += 1;
-        Json(serde_json::json!({ "data": { "name": "LEAD-1" } })).into_response()
+        *fake.payload.lock().unwrap() = Some(body);
+        Json(serde_json::json!({
+            "message": {
+                "lead_name": "CRM-LEAD-1",
+                "task_name": "1",
+                "action_state": "follow_up_queued"
+            }
+        }))
+        .into_response()
     }
 
-    async fn update(State(fake): State<FakeFrappe>) -> Response {
-        if fake.status != AxumStatus::OK {
-            return fake.status.into_response();
-        }
-        *fake.writes.lock().unwrap() += 1;
-        Json(serde_json::json!({ "data": { "name": "LEAD-1" } })).into_response()
-    }
-
-    async fn fake(status: AxumStatus, existing: bool, delay: bool) -> (String, FakeFrappe) {
+    async fn fake(status: AxumStatus, delay: bool) -> (String, FakeFrappe) {
         let state = FakeFrappe {
-            lead: Arc::new(StdMutex::new(existing.then(|| "LEAD-1".into()))),
             status,
             delay,
             writes: Arc::new(StdMutex::new(0)),
+            payload: Arc::new(StdMutex::new(None)),
         };
         let app = Router::new()
-            .route("/api/resource/Lead", get(list).post(create))
-            .route("/api/resource/Lead/LEAD-1", put(update))
+            .route(
+                "/api/method/shared_crm.api.sync_lotlift_cold_call",
+                post(sync),
+            )
             .with_state(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -713,7 +541,7 @@ mod tests {
             idempotency_key: "call-1:1:final_analysis".into(),
             call_id: "call-1".into(),
             revision: 1,
-            event_type: "final_analysis".into(),
+            event_type: "cold_call".into(),
             state: OutboxState::Pending,
             attempts: 0,
             next_attempt_at: 0,
@@ -721,12 +549,17 @@ mod tests {
                 base_url,
                 auth_method: FrappeAuthMethod::Token,
                 credential_reference: "test".into(),
-                lead_doctype: "Lead".into(),
-                identity_field: "mobile_no".into(),
-                identity_source: "phone".into(),
-                field_mapping: BTreeMap::from([("phone".into(), "mobile_no".into())]),
             },
-            payload: BTreeMap::from([("mobile_no".into(), "+15551234567".into())]),
+            payload: BTreeMap::from([
+                ("idempotency_key".into(), "call-1:1:final_analysis".into()),
+                ("outcome".into(), "qualified".into()),
+                ("first_name".into(), "Fictional".into()),
+                ("email".into(), "fictional@example.com".into()),
+                ("summary".into(), "Fictional summary".into()),
+                ("organization".into(), "Fictional Motors".into()),
+                ("mobile_no".into(), "+15550100".into()),
+                ("job_title".into(), "Tester".into()),
+            ]),
             scheduled_action: None,
             remote_name: None,
             last_error: None,
@@ -734,27 +567,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fake_frappe_creates_then_updates_the_same_lead_for_a_duplicate_event() {
-        let (base, fake) = fake(AxumStatus::OK, false, false).await;
+    async fn fake_frappe_uses_the_explicit_idempotent_cold_call_method() {
+        let (base, fake) = fake(AxumStatus::OK, false).await;
         let item = entry(base);
-        assert_eq!(send_entry(&item, "key:secret").await.unwrap(), "LEAD-1");
-        assert_eq!(send_entry(&item, "key:secret").await.unwrap(), "LEAD-1");
+        assert_eq!(send_entry(&item, "key:secret").await.unwrap(), "CRM-LEAD-1");
+        assert_eq!(send_entry(&item, "key:secret").await.unwrap(), "CRM-LEAD-1");
         assert_eq!(*fake.writes.lock().unwrap(), 2);
-    }
-
-    #[tokio::test]
-    async fn fake_frappe_updates_an_existing_lead() {
-        let (base, fake) = fake(AxumStatus::OK, true, false).await;
+        let body = fake.payload.lock().unwrap().clone().unwrap();
         assert_eq!(
-            send_entry(&entry(base), "key:secret").await.unwrap(),
-            "LEAD-1"
+            body["payload"]["idempotency_key"],
+            serde_json::json!("call-1:1:final_analysis")
         );
-        assert_eq!(*fake.writes.lock().unwrap(), 1);
+        assert_eq!(body["payload"]["outcome"], serde_json::json!("qualified"));
     }
 
     #[tokio::test]
     async fn fake_frappe_rejects_auth_and_retries_server_errors_and_timeouts() {
-        let (auth, _) = fake(AxumStatus::UNAUTHORIZED, false, false).await;
+        let (auth, _) = fake(AxumStatus::UNAUTHORIZED, false).await;
         assert_eq!(
             send_entry(&entry(auth), "key:secret")
                 .await
@@ -762,13 +591,35 @@ mod tests {
                 .to_string(),
             "Frappe authentication rejected"
         );
-        let (failure, _) = fake(AxumStatus::INTERNAL_SERVER_ERROR, false, false).await;
+        let (failure, _) = fake(AxumStatus::INTERNAL_SERVER_ERROR, false).await;
         assert!(send_entry(&entry(failure), "key:secret")
             .await
             .unwrap_err()
             .to_string()
             .contains("HTTP 500"));
-        let (slow, _) = fake(AxumStatus::OK, false, true).await;
+        let (slow, _) = fake(AxumStatus::OK, true).await;
         assert!(send_entry(&entry(slow), "key:secret").await.is_err());
+    }
+
+    #[test]
+    fn accepts_loopback_http_urls_and_rejects_every_other_http_host() {
+        for url in [
+            "http://localhost:8000",
+            "http://crm.localhost:8000",
+            "http://127.0.0.2:8000",
+            "http://[::1]:8000",
+        ] {
+            assert!(validated_base_url(url).is_ok(), "{url}");
+        }
+        for url in [
+            "http://example.com",
+            "http://example.localhost.evil",
+            "http://0.0.0.0:8000",
+            "http://10.0.0.1:8000",
+            "http://192.168.1.1:8000",
+            "http://[fd00::1]:8000",
+        ] {
+            assert!(validated_base_url(url).is_err(), "{url}");
+        }
     }
 }

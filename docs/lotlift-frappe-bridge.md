@@ -1,36 +1,47 @@
-# LotLift Frappe bridge contract
+# Local LotLift Frappe cold-call bridge
 
-**Status:** intentionally disabled. No Frappe URL, token, DocType, or field mapping is stored in this project.
+**Status:** local-only smoke-test integration. It creates fictional CRM records in `crm.localhost`; it does not call, email, webhook, queue, or schedule outreach.
 
-The local coach persists structured Call State on-device first. A future bridge may send a snapshot only after it has committed locally, never audio or a full transcript by default.
+## Fixed endpoint and payload
 
-## Required configuration before enabling
+The desktop posts exactly one wrapper to:
 
-- HTTPS Frappe base URL (or explicitly loopback for development)
-- A dedicated, least-privilege integration account and secret supplied at runtime, never written to Parley settings or logs
-- Target DocType and exact field mapping
-- A user-visible consent/retention decision for each call
-- Idempotency field accepting `<call-id>:<revision>`
+```text
+POST http://crm.localhost:8000/api/method/shared_crm.api.sync_lotlift_cold_call
+```
 
-## Payload contract
+HTTP is accepted only for loopback addresses, including `.localhost`; other HTTP hosts are rejected. HTTPS remains required elsewhere.
 
 ```json
 {
-  "call_id": "opaque-id",
-  "revision": 7,
-  "current_solution": "shared inbox",
-  "quantified_pain": ["three paid inquiries sat overnight"],
-  "authority": "general manager",
-  "urgency": "before weekend campaign",
-  "recurring_objections": [{"kind":"existing-solution","count":2,"resolved":false}],
-  "prior_answers": [],
-  "commitments": ["workflow check Tuesday"],
-  "open_questions": ["Which marketplace sources are approved?"]
+  "payload": {
+    "idempotency_key": "fictional-call:1:final_analysis",
+    "outcome": "qualified",
+    "first_name": "LotLift Fictional",
+    "email": "lotlift-fictional@example.com",
+    "organization": "LotLift Fictional Motors",
+    "mobile_no": "+15550100",
+    "job_title": "Test Manager",
+    "summary": "Fictional verified cold-call summary."
+  }
 }
 ```
 
-The sender must enforce an endpoint allowlist, HTTPS/loopback only, a short timeout, bounded retries, durable idempotent outbox entries, and a visible retry/error status. A failed sync must never block the local call or overwrite newer Call State.
+`outcome` is `qualified`, `no_follow_up`, or `do_not_contact`. Only `qualified` creates a linked CRM Task. The server rejects unknown fields, unverified-looking or oversized values, invalid email/idempotency values, and non-`Sales User` callers.
 
-## Explicit exclusions
+The response contains only `lead_name`, optional `task_name`, and `action_state`. A unique private **LotLift Sync** row owns the idempotency key, lead, task, and summary; retries return that same result.
 
-No raw audio, full transcript, API key, Frappe secret, browser cookies, customer contact data, or unverified LLM inference belongs in the default payload.
+## Local smoke-test account
+
+1. Create a dedicated local user with **Sales User** only.
+2. Create one API token for that user; do not print, commit, log, or put its secret in `.env`.
+3. Save the token secret at runtime through `save_lotlift_frappe_credential` using a descriptive keychain reference such as `lotlift-local-smoke`.
+4. Use that reference with `FrappeConfig { base_url: "http://crm.localhost:8000", auth_method: "token", credential_reference: "lotlift-local-smoke" }`.
+
+The outbox stores the reference, never the token. It uses a five-second timeout, bounded retries, and an idempotency key derived from call ID and revision.
+
+## Safety boundary
+
+Use only fictional `example.com` records with a unique `LotLift` prefix. The endpoint has no email, dialer, webhook, queue, scheduler, or automation import/call. It updates native **CRM Lead** fields (`first_name`, organization, email, mobile number, job title, source, status), adds a local verified-summary comment, and creates a native **CRM Task** only when the payload says `qualified`.
+
+No audio, full transcript, browser cookies, Frappe token, raw contact data, or unverified model output belongs in this payload. Do not connect this local smoke test to real people or outbound automation.
