@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
 import { IngestWizard } from "./components/IngestWizard";
 import { TranscriptImportDialog } from "./components/TranscriptImportDialog";
+import { StartCallDialog } from "./components/StartCallDialog";
 import { FindingSolutionWindow } from "./components/analysis/FindingSolutionWindow";
 import { useFindingSolutionHost } from "./components/analysis/useFindingSolutionHost";
 import { DeliveryNudgeHost } from "./components/delivery/DeliveryNudgeHost";
@@ -35,7 +36,7 @@ import { useAnalysisEngine, listenForCacheClear } from "./lib/analysis/engine";
 import { initStudyPipeline } from "./lib/analysis/studyPipeline";
 import { listenForSpeakerCacheClear } from "./lib/speakers/namesCache";
 import { initHistoryPersistSync, listenForRecordingSaved } from "./lib/history/history";
-import { initLotLiftCoach } from "./lib/lotlift/coach";
+import { initSalesCoach } from "./lib/sales/engine";
 import { checkForUpdate } from "./lib/update";
 import {
   getPendingInstalledReleaseNotes,
@@ -154,7 +155,7 @@ const App = () => {
     const unSessionCmds = initSessionCommands();
     const unHistoryPersist = initHistoryPersistSync();
     const unStudyPipeline = initStudyPipeline();
-    const unLotLiftCoach = initLotLiftCoach();
+    const unSalesCoach = initSalesCoach();
     const unVoiceTyping = initVoiceTyping();
     return () => {
       active = false;
@@ -165,7 +166,7 @@ const App = () => {
       unSessionCmds();
       unHistoryPersist();
       unStudyPipeline();
-      unLotLiftCoach();
+      unSalesCoach();
       unVoiceTyping();
     };
   }, []);
@@ -320,6 +321,7 @@ const App = () => {
       <Toaster />
       <IngestWizard />
       <TranscriptImportDialog />
+      <StartCallDialog />
       {/* In the Tauri app the drilldown is its own OS window (see
           useFindingSolutionHost); in plain browser dev we fall back to the
           in-app overlay so the feature still works without multi-window. */}

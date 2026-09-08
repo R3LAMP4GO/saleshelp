@@ -497,6 +497,18 @@ describe("meeting lifecycle", () => {
     expect(s.speakerNames).toEqual({});
   });
 
+  it("keeps profile metadata separate from its UUID meeting identity", () => {
+    useStore.getState().startMeeting({
+      salesProfileId: "lotlift-cold-outbound", businessId: "lotlift", motion: "cold-outbound",
+      profileVersion: "1", playbookVersion: "1", productFactsVersion: "1", evaluationVersion: "1", selectedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const state = useStore.getState();
+    expect(state.meetingId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(state.salesMetadata?.salesProfileId).toBe("lotlift-cold-outbound");
+    expect(state.meetingId).not.toContain("lotlift");
+  });
+
   it("assigns a distinct stable identity to each meeting restart", () => {
     useStore.getState().startMeeting();
     const first = useStore.getState().meetingId;

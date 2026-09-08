@@ -22,3 +22,15 @@ The existing Parley shell remains intact. The simulator uses the app’s neutral
 ## Verification scope
 
 Desktop and narrow browser screenshots cover the primary simulator flow. Automated tests cover price, do-not-call, and spouse-context retrieval. Manual screen-reader, forced-colors, 200% text, and native Tauri-window verification remain unverified.
+
+## Start Call selector
+
+- **Job:** make the meeting type explicit before capture, requiring a profile for sales calls.
+- The shared modal uses native radio inputs, visible labels, and existing Button/Input primitives.
+- Keyboard order is activity, profile, optional prospect fields, Cancel, then Start; Escape closes and focus returns to the launcher through the dialog primitive.
+- General meetings require only an activity choice and use the established capture path unchanged.
+- Sales calls reveal approved profiles and optional local prospect name, role, phone, and CRM lead ID; typed values are not conversation facts.
+- Start stays disabled until an activity is selected, and sales also requires a profile; capture failure keeps every selector value and announces retry guidance.
+- Desktop keeps the form on one compact rail; narrow windows stack prospect fields; content has no fixed height and scrolls inside the dialog.
+- Long localized text and 200% text may increase dialog height without hiding controls; fields collapse from two columns to one.
+- Automated controller and TypeScript checks cover coalesced launch requests; desktop/narrow screenshots, keyboard flow, localization, 200% text, DNC-blocked state, screen reader, forced colors, and native Tauri checks remain unverified until the profile/DNC slice is complete.

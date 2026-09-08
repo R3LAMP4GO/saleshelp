@@ -43,7 +43,7 @@ export type LotLiftTurnIntelligence = {
   source: "model" | "fallback" | "hard-rule";
 };
 
-const SYSTEM = "LotLift turn coach. Return only the schema. Use only supplied transcript evidence. Never invent pricing, integrations, ROI, customer facts, lead volume, authority, or urgency. If uncertain, emit no state events and no coaching. Choose at most one exact approved playbook example for say; never write alternatives or reasoning.";
+const SYSTEM = "LotLift turn coach. Return only the schema. Use only supplied transcript evidence. Never invent pricing, integrations, ROI, customer facts, lead volume, authority, or urgency. If uncertain, emit no state events and no coaching. say must be either one exact approved playbook example or one concise question with no product claim, facts, numbers, or alternatives.";
 
 function boundedText(text: string, limit = MAX_TURN_CHARS): string { return text.trim().slice(0, limit); }
 
@@ -109,6 +109,11 @@ function toStateEvents(output: LotLiftTurnModelOutput, recent: readonly Transcri
   return events;
 }
 
+function isClaimFreeQuestion(value: string): boolean {
+  const text = value.trim();
+  return text.endsWith("?") && !/[.!\n$%\d]/.test(text.slice(0, -1)) && !/\b(?:lotlift|our (?:product|platform|tool|crm)|we (?:have|offer|integrate|help|save))\b/i.test(text);
+}
+
 function validateOutput(output: LotLiftTurnModelOutput, recent: readonly TranscriptSegment[], allowed: LotLiftPlaybookRuleId[]): LotLiftTurnIntelligence | null {
   if (output.playbook_rule_ids.some((id) => !allowed.includes(id as LotLiftPlaybookRuleId))) return null;
   const rules = output.playbook_rule_ids as LotLiftPlaybookRuleId[];
@@ -116,7 +121,7 @@ function validateOutput(output: LotLiftTurnModelOutput, recent: readonly Transcr
   if (!events) return null;
   const examples = rules.flatMap((id) => lotLiftPlaybookRule(id).good_examples);
   const goals = rules.map((id) => lotLiftPlaybookRule(id).objective);
-  if ((output.say && (!examples.includes(output.say) || /\n/.test(output.say))) || (output.goal && !goals.includes(output.goal))) return null;
+  if ((output.say && (!examples.includes(output.say) && !isClaimFreeQuestion(output.say))) || (output.goal && !goals.includes(output.goal))) return null;
   if (!output.needs_coaching && (output.say || output.goal)) return null;
   return { ...output, playbook_rule_ids: rules, state_events: events, source: "model" };
 }

@@ -96,6 +96,7 @@ function snapshotAnalysis() {
     meetingBatna: s.meetingBatna,
     meetingTarget: s.meetingTarget,
     meetingFloor: s.meetingFloor,
+    salesMetadata: s.salesMetadata,
     deliveryAssessment: s.deliveryAssessment,
     // Upload/loaded entries carry the measured pace on the replay session; a live
     // meeting has none here — saveLiveToHistory measures the recording + sets it.

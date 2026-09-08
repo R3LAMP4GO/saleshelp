@@ -8,6 +8,7 @@ import { renderLotLiftScriptCard, selectLotLiftScriptCard } from "./scriptCards"
 import { analyzeLotLiftTurn } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
+import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
 
 type CoachEvent = { response: ApprovedLotLiftResponse; state: CallStateEvent };
 
@@ -27,7 +28,7 @@ const defaultCallStates = new LotLiftCallStateManager();
 
 function display(segment: TranscriptSegment, response: { id: string; title: string; consideration: string; response: string }, critical = false, decisionEvidence?: LotLiftFieldValue<string>): void {
   const store = useStore.getState();
-  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift" };
+  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", salesMetadata: store.salesMetadata ?? undefined };
   if (store.findings.some((item) => item.id === finding.id)) return;
   store.addFinding(finding);
   store.setFindingSolution(finding.id, { status: "done", error: null, solution: { findingId: finding.id, replies: [{ kind: "reframe", reply: response.response, consideration: response.consideration }] } });
@@ -37,13 +38,15 @@ function display(segment: TranscriptSegment, response: { id: string; title: stri
 }
 
 /** Immediate finalized-prospect path; it deliberately bypasses the full-analysis timer. */
-export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = analyzeLotLiftTurn): () => void {
+export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = analyzeLotLiftTurn, salesProfileId?: string): () => void {
   let activeCallId: string | null = null;
   let newestProspectSegmentId: string | null = null;
   const processed = new Set<string>();
   const unsubscribe = useStore.subscribe((state, previous) => {
     const meetingActive = state.meetingStatus === "recording" || state.meetingStatus === "paused";
-    const callId = meetingActive && state.meetingId ? `lotlift-${state.meetingId}` : null;
+    const selectedProfile = !salesProfileId || state.salesMetadata?.salesProfileId === salesProfileId;
+    // Legacy callers retain their historic LotLift key; profile-selected calls use the UUID unchanged.
+    const callId = meetingActive && state.meetingId && selectedProfile ? salesProfileId ? state.meetingId : `lotlift-${state.meetingId}` : null;
     if (activeCallId && activeCallId !== callId) { void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; processed.clear(); }
     if (!callId) return;
     activeCallId = callId;
@@ -66,6 +69,8 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     measureLotLiftHardRule(segment.id, hardRuleStartedAt);
     markLotLiftTurn(segment.id, "playbook");
     if (deterministic?.response.id === "do-not-call") {
+      const prospectId = salesProfileId && state.salesMetadata?.businessId ? canonicalProspectId(state.salesMetadata.prospect) : null;
+      if (prospectId && state.salesMetadata) leadMemory.recordDoNotContact({ businessId: state.salesMetadata.businessId, canonicalProspectId: prospectId, recordedAt: new Date().toISOString() });
       if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
       return;
     }
@@ -92,8 +97,12 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
         if (events.length && callStates.record(callId, segment.id, events)) void callStates.flush(callId).then(() => {
           markLotLiftTurn(segment.id, "persisted");
         });
-        if (!result.needs_coaching || !deterministic) { setLotLiftLiveStatus("No intervention needed"); return; }
-        display(segment, deterministic.response, false, decisionEvidence ?? undefined);
+        if (!result.needs_coaching) { setLotLiftLiveStatus("No intervention needed"); return; }
+        const contextualQuestion = result.source === "model" && result.say?.trim().endsWith("?")
+          ? { id: "contextual-question", title: "Discovery question", consideration: result.goal ?? "Clarify the prospect's context.", response: result.say }
+          : deterministic?.response;
+        if (!contextualQuestion) { setLotLiftLiveStatus("No intervention needed"); return; }
+        display(segment, contextualQuestion, false, decisionEvidence ?? undefined);
       } catch {
         setLotLiftLiveStatus("Local model unavailable");
         if (newestProspectSegmentId === segment.id && deterministic && callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, false, decisionEvidence ?? undefined); }

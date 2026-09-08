@@ -6,6 +6,8 @@ import { vocabularyTerms } from "../dictionary";
 import { isTauri } from "../tauriEvents";
 import { translate, type TranslationKey } from "../../i18n/messages";
 import type { Settings } from "../types";
+import type { SalesMeetingMetadata } from "../sales/meeting";
+import { salesVocabularyTerms } from "../sales/stt";
 import { log } from "../log";
 
 /** In-flight latch: a double-click (or two start buttons hit in quick
@@ -19,46 +21,48 @@ let starting = false;
  * two copies of the provider checks would drift, and those checks are the only
  * thing standing between a missing key and a recorder that isn't recording.
  */
-export async function beginMeeting(): Promise<void> {
-  if (starting) return;
+export async function beginMeeting(salesMetadata?: SalesMeetingMetadata): Promise<boolean> {
+  if (starting) return false;
   starting = true;
   try {
-    await start();
+    return await start(salesMetadata);
   } finally {
     starting = false;
   }
 }
 
-async function start(): Promise<void> {
+async function start(salesMetadata?: SalesMeetingMetadata): Promise<boolean> {
   const s = useStore.getState();
   const { settings } = s;
   const sttKey = sttApiKey(settings, settings.transcriptionProvider);
   const t = (key: TranslationKey) => translate(settings.language, key);
   const useRealPipeline = isTauri() && !!sttKey.trim();
 
-  s.startMeeting();
+  s.startMeeting(salesMetadata);
 
   if (useRealPipeline) {
-    await openCaptureSession(settings, sttKey);
+    return openCaptureSession(settings, sttKey, salesMetadata);
   } else if (settings.transcriptionProvider === "parley") {
     // Hosted STT selected but no usable cloud session — never fake it with a
     // mock transcript; tell the user to sign in and back out of "recording".
     log.info("meeting: start blocked (parley, no session)");
-    useStore.getState().stopMeeting();
+    clearFailedStart();
     toast.error(t("meeting.error.signin"));
+    return false;
   } else {
     // A missing provider credential must never look like a real call. The old
     // developer mock injected scripted speakers here, contaminating live calls.
     log.info("meeting: start blocked (provider has no credential)", { provider: settings.transcriptionProvider });
-    useStore.getState().stopMeeting();
+    clearFailedStart();
     toast.error("Configure a transcription provider before starting a meeting.");
+    return false;
   }
 }
 
 /** The real capture path: hand the configured provider to Rust. Any failure
  *  backs the UI out of "recording" rather than leaving a recorder that isn't
  *  recording. */
-async function openCaptureSession(settings: Settings, sttKey: string): Promise<void> {
+async function openCaptureSession(settings: Settings, sttKey: string, salesMetadata?: SalesMeetingMetadata): Promise<boolean> {
   const provider = STT_BY_ID[settings.transcriptionProvider];
   log.info("meeting: start requested", {
     provider: settings.transcriptionProvider,
@@ -79,14 +83,23 @@ async function openCaptureSession(settings: Settings, sttKey: string): Promise<v
       relayUrl: sttRelayUrl(settings.transcriptionProvider, "meeting"),
       // Bias the recognizer with the user's phrase dictionary — the terms it
       // keeps mishearing in dictation are the same ones it mishears in a meeting.
-      vocabulary: vocabularyTerms(),
+      vocabulary: salesVocabularyTerms(vocabularyTerms(), salesMetadata),
     });
+    return true;
   } catch (e) {
     log.error("meeting: start failed", {
       provider: settings.transcriptionProvider,
       inputDevice: settings.inputDevice,
       error: String(e),
     });
-    useStore.getState().stopMeeting();
+    clearFailedStart();
+    return false;
   }
+}
+
+function clearFailedStart(): void {
+  const state = useStore.getState();
+  // Test and embedding stores may expose only the legacy stop action.
+  if (typeof state.cancelMeeting === "function") state.cancelMeeting();
+  else state.stopMeeting();
 }

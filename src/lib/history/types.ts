@@ -5,6 +5,7 @@
 // unchanged. `HistoryEntrySummary` is the lightweight card the history grid
 // lists (written to `summary.json` so listing never parses the full entries).
 
+import type { SalesMeetingMetadata } from "../sales/meeting";
 import type {
   ActionItem,
   DeliveryAssessment,
@@ -45,6 +46,8 @@ export interface HistoryEntry {
   meetingBatna: string;
   meetingTarget: string;
   meetingFloor: string;
+  /** Immutable policy selection for sales calls; absent for legacy/general calls. */
+  salesMetadata?: SalesMeetingMetadata | null;
   /** Recording file name within the entry folder ("audio.ogg"), or null if none. */
   audio: string | null;
   /** Saved LLM delivery assessment (tone + fillers + summary). Optional: entries

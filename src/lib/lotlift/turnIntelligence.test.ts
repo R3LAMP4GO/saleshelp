@@ -44,6 +44,16 @@ describe("LotLift Turn Intelligence", () => {
     expect(result).toMatchObject({ source: "fallback", state_events: [], say: null });
   });
 
+  it("permits a claim-free contextual discovery question", async () => {
+    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say: "What would make a conversation useful for you?", goal: null });
+    expect(result).toMatchObject({ source: "model", say: "What would make a conversation useful for you?" });
+  });
+
+  it("rejects a question that introduces a product claim", async () => {
+    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say: "Would our platform save you money?", goal: null });
+    expect(result.source).toBe("fallback");
+  });
+
   it("falls back when the local model is slow", async () => {
     const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("call-1"), turn: turn("We are not interested."), recent: [turn("We are not interested.")], timeoutMs: 1, model: async () => new Promise(() => {}) });
     expect(result).toMatchObject({ source: "fallback", event_type: "objection" });

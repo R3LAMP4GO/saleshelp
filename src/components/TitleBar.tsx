@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { stopMockStream } from "../lib/mockStream";
 import { isMac } from "../lib/platform";
 import { isTauri } from "../lib/tauriEvents";
-import { beginMeeting } from "../lib/meeting/start";
+import { requestMeetingStart } from "../lib/meeting/requestStart";
 import { openSettings } from "../lib/nav/settings";
 import { useI18n } from "../i18n";
 import { Button } from "@/components/ui/button";
@@ -627,9 +627,9 @@ export function TitleBar({ fullscreen = false }: Readonly<{ fullscreen?: boolean
     }
   }
 
-  /** Start = record right now, riding whatever prep draft is already set. */
+  /** All start surfaces open the same selector before capture begins. */
   function start() {
-    void guarded(() => beginMeeting());
+    requestMeetingStart();
   }
 
   /** End = the meeting's natural finish: save the recording, then the study

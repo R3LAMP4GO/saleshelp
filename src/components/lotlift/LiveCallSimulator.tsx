@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "../../lib/store";
 import { newLotLiftCallState, reduceLotLiftCallState } from "../../lib/lotlift/callState";
 import { classifyLotLiftTurn } from "../../lib/lotlift/coach";
+import { analyzeLotLiftTurn } from "../../lib/lotlift/turnIntelligence";
 import { getLotLiftLiveStatus, setLotLiftLiveStatus, subscribeLotLiftLiveStatus, type LotLiftLiveStatus } from "../../lib/lotlift/liveStatus";
 
 type Turn = { id: number; text: string; response: { id: string; title: string; response: string; consideration: string; rule_id: string } | null };
@@ -16,7 +17,9 @@ const EXAMPLE_TURNS = [
 export function LiveCallSimulator() {
   const openHome = useStore((state) => state.openHome);
   const userName = useStore((state) => state.settings.userName);
+  const settings = useStore((state) => state.settings);
   const [line, setLine] = useState("");
+  const [mode, setMode] = useState<"deterministic" | "local-ai">("deterministic");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [callState, setCallState] = useState(() => newLotLiftCallState("lotlift-simulator"));
   const [coachState, setCoachState] = useState<LotLiftLiveStatus>(getLotLiftLiveStatus);
@@ -24,22 +27,28 @@ export function LiveCallSimulator() {
 
   const latest = turns[turns.length - 1]?.response ?? null;
 
-  function addProspectLine(text: string) {
+  async function addProspectLine(text: string) {
     const cleaned = text.trim();
     if (!cleaned) return;
     setLotLiftLiveStatus("Thinking");
     const segment = { id: `sim-${Date.now()}`, source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 0, text: cleaned };
     const coaching = classifyLotLiftTurn(segment, callState, userName);
     if (coaching) setCallState((current) => reduceLotLiftCallState(current, coaching.state));
-    const response = coaching?.response ?? null;
+    let response = coaching?.response ?? null;
+    if (mode === "local-ai" && !coaching) {
+      const recent = [...turns.map((turn) => ({ ...segment, id: `sim-${turn.id}`, text: turn.text })), segment];
+      const result = await analyzeLotLiftTurn({ state: callState, turn: segment, recent, settings });
+      if (result.state_events.length) setCallState((current) => result.state_events.reduce(reduceLotLiftCallState, current));
+      if (result.needs_coaching && result.say?.endsWith("?")) response = { id: "contextual-question", title: "Discovery question", response: result.say, consideration: result.goal ?? "Clarify the prospect's context.", rule_id: result.playbook_rule_ids[0] ?? "question-only" };
+    }
     setTurns((current) => [...current, { id: Date.now(), text: cleaned, response }]);
-    queueMicrotask(() => setLotLiftLiveStatus(response ? "Suggestion ready" : "No intervention needed"));
+    setLotLiftLiveStatus(response ? "Suggestion ready" : "No intervention needed");
     setLine("");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    addProspectLine(line);
+    void addProspectLine(line);
   }
 
   function loadExample() {
@@ -66,6 +75,7 @@ export function LiveCallSimulator() {
             <p className="max-w-2xl text-sm text-muted-foreground">Enter each prospect line. The coach retains the call and returns one approved response when it detects an objection.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-2 text-sm"><span className="sr-only">Coach mode</span><select value={mode} onChange={(event) => setMode(event.target.value as "deterministic" | "local-ai")} className="h-9 rounded-md border bg-background px-2"><option value="deterministic">Approved cards</option><option value="local-ai">Local AI</option></select></label>
             <Button variant="ghost" onClick={openHome}><ArrowLeft className="size-4" />Back to home</Button>
             <Button variant="outline" onClick={() => { setTurns([]); setCallState(newLotLiftCallState("lotlift-simulator")); }} disabled={turns.length === 0}><RotateCcw className="size-4" />Clear call</Button>
           </div>

@@ -37,6 +37,7 @@ import { translate, type TranslationKey } from "../i18n/messages";
 import { DEFAULT_MODELS } from "./ai/providers";
 import { countFillerSounds } from "./analysis/fillerWords";
 import { log } from "./log";
+import type { SalesMeetingMetadata } from "./sales/meeting";
 
 /** A translate function bound to a language, for resolving built-in templates. */
 const tFor = (language: AppLanguage) => (key: TranslationKey) => translate(language, key);
@@ -520,8 +521,10 @@ interface ParleyState {
   isFinalizingMeeting: boolean;
   setFinalizingMeeting: (v: boolean) => void;
   meetingStartedAt: number | null;
-  /** Stable identity for the current live meeting; replaced on every start. */
+  /** Stable UUID identity for the current live meeting; replaced on every start. */
   meetingId: string | null;
+  /** Immutable business-policy choice for this call; null for general/legacy meetings. */
+  salesMetadata: SalesMeetingMetadata | null;
   /** When the CURRENT pause began (epoch ms), null while not paused. */
   meetingPausedAt: number | null;
   /** Total paused time (ms) accumulated by PREVIOUS pauses this meeting —
@@ -596,7 +599,8 @@ interface ParleyState {
   applyTodoTemplate: (items: string[]) => void;
 
   // meeting lifecycle
-  startMeeting: () => void;
+  /** Starts a UUID-keyed meeting and atomically attaches optional sales policy metadata. */
+  startMeeting: (salesMetadata?: SalesMeetingMetadata) => void;
   stopMeeting: () => void;
   /** Freeze the live meeting (recording → paused). The backend drops audio
    *  while paused; segments finalizing from PRE-pause audio still land. */
@@ -670,6 +674,7 @@ export const useStore = create<ParleyState>()(
       isFinalizingMeeting: false,
       meetingStartedAt: null,
       meetingId: null,
+      salesMetadata: null,
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       segments: [],
@@ -742,6 +747,7 @@ export const useStore = create<ParleyState>()(
       segments: session.segments,
       speakerNames: session.speakerNames,
       meetingStatus: "stopped",
+      salesMetadata: null,
       highlightMs: null,
       // A fresh session gets fresh study outputs — a previous recording's
       // brief must never render over this one.
@@ -781,6 +787,7 @@ export const useStore = create<ParleyState>()(
       segments: entry.segments,
       speakerNames: entry.speakerNames,
       meetingStatus: "stopped",
+      salesMetadata: entry.salesMetadata ?? null,
       highlightMs: null,
       // Base-clear every study slice, then restore what the entry has. Present
       // → "done" (the pipeline only starts "idle" stages, so loading a saved
@@ -826,6 +833,7 @@ export const useStore = create<ParleyState>()(
       segments: [],
       speakerNames: {},
       meetingStatus: "idle",
+      salesMetadata: null,
       highlightMs: null,
       ...CLEARED_STUDY_SLICE,
     }));
@@ -1001,14 +1009,18 @@ export const useStore = create<ParleyState>()(
         .map((t) => ({ id: crypto.randomUUID(), text: t.trim(), done: false })),
     }),
 
-  startMeeting: () => {
-    log.info("store: meeting started");
+  startMeeting: (salesMetadata) => {
+    log.info("store: meeting started", { salesProfileId: salesMetadata?.salesProfileId });
+    const metadata = salesMetadata
+      ? Object.freeze({ ...salesMetadata, ...(salesMetadata.prospect ? { prospect: { ...salesMetadata.prospect } } : {}) })
+      : null;
     set({
       // Recording owns the window: land on the live cockpit.
       appMode: "live",
       meetingStatus: "recording",
       meetingStartedAt: Date.now(),
       meetingId: crypto.randomUUID(),
+      salesMetadata: metadata,
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       loadedHistoryId: null,
@@ -1054,6 +1066,7 @@ export const useStore = create<ParleyState>()(
       meetingStatus: "idle",
       meetingStartedAt: null,
       meetingId: null,
+      salesMetadata: null,
       meetingPausedAt: null,
       meetingPausedTotalMs: 0,
       segments: [],

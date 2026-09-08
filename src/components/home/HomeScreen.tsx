@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { useStore } from "../../lib/store";
 import { loadHistoryEntry } from "../../lib/history/history";
 import { startImportFlow } from "../../lib/replay/ingest";
-import { beginMeeting } from "../../lib/meeting/start";
+import { requestMeetingStart } from "../../lib/meeting/requestStart";
 import { useI18n } from "../../i18n";
 import { log } from "../../lib/log";
 import { Button } from "@/components/ui/button";
@@ -44,12 +44,7 @@ export function HomeScreen({ tree }: Readonly<{ tree: LibraryTree }>) {
             <Button
               size="lg"
               className="h-10"
-              onClick={() =>
-                beginMeeting().catch((e) => {
-                  log.error("home: start failed", { error: String(e) });
-                  toast.error(String(e instanceof Error ? e.message : e));
-                })
-              }
+              onClick={requestMeetingStart}
             >
               <Mic className="size-4" />
               {t("titlebar.startMeeting")}
