@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import type { TranscriptSegment } from "../types";
+import { newLotLiftCallState, type LotLiftFieldValue } from "./callState";
+import { buildLotLiftContextPack } from "./contextPack";
+
+function segment(id: string, source: TranscriptSegment["source"], text: string, endMs: number): TranscriptSegment {
+  return { id, source, text, speaker: 0, isFinal: true, startMs: endMs - 100, endMs };
+}
+
+function verified(value: string, id = "evidence"): LotLiftFieldValue<string> {
+  return { value, status: "verified", evidence: { segment_id: id, text: value } };
+}
+
+describe("LotLift ContextPack", () => {
+  it("selects recent dialogue, durable decision facts, prior objection responses, and relevant rules", () => {
+    const state = newLotLiftCallState("call-1");
+    state.current_solution = verified("VinSolutions", "old-objection");
+    state.pain_points = [verified("Internet leads wait overnight", "recent-pain")];
+    state.decision_stakeholders = [verified("wife", "old-objection")];
+    state.authority = verified("general manager", "recent-authority");
+
+    const conversation = [
+      segment("old-objection", "them", "We already have a CRM.", 150_000),
+      segment("old-response", "me", "How are those leads handled after hours?", 151_000),
+      segment("too-old", "them", "This should stay out of the dialogue window.", 180_000),
+      segment("recent-pain", "them", "Our internet leads wait overnight.", 230_000),
+      segment("recent-authority", "me", "Who owns that workflow today?", 270_000),
+      segment("current", "them", "We already have a CRM for that.", 300_000),
+    ];
+    const current = conversation[conversation.length - 1]!;
+
+    const pack = buildLotLiftContextPack(state, current, conversation, ["objection:existing-crm", "qualification:pain", "qualification:authority", "discovery:lead-source"]);
+
+    expect(pack.current_stage).toBe("objection");
+    expect(pack.durable_facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "current_solution", value: "VinSolutions" }),
+      expect.objectContaining({ field: "pain_points", value: "Internet leads wait overnight" }),
+      expect.objectContaining({ field: "decision_stakeholders", value: "wife" }),
+      expect.objectContaining({ field: "authority", value: "general manager" }),
+    ]));
+    expect(pack.recent_dialogue.map((item) => item.id)).toEqual(["recent-pain", "recent-authority", "current"]);
+    expect(pack.previous_objections).toEqual([expect.objectContaining({
+      rule_id: "objection:existing-crm",
+      prospect_text: "We already have a CRM.",
+      rep_response: "How are those leads handled after hours?",
+    })]);
+    expect(pack.playbook_rules.map((rule) => rule.id)).toEqual(["objection:existing-crm", "qualification:pain", "qualification:authority"]);
+  });
+});

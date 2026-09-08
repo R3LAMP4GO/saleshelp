@@ -4,7 +4,7 @@ import { analyzeLotLiftTurn, type LotLiftTurnModelOutput } from "./turnIntellige
 import type { TranscriptSegment } from "../types";
 
 const turn = (text: string, id = "turn-1"): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 100 });
-const model = (output: Partial<LotLiftTurnModelOutput>) => async () => ({ event_type: "none", confidence: 0.9, needs_coaching: false, playbook_rule_ids: [], state_events: [], say: null, goal: null, ...output } as LotLiftTurnModelOutput);
+const model = (output: Partial<LotLiftTurnModelOutput>) => async () => ({ event_type: "none", confidence: 0.9, needs_coaching: false, playbook_rule_ids: [], state_events: [], say: null, say_evidence: [], product_claims: [], goal: null, ...output } as LotLiftTurnModelOutput);
 const run = (text: string, output: Partial<LotLiftTurnModelOutput>, recent = [turn(text)]) => analyzeLotLiftTurn({ state: newLotLiftCallState("call-1"), turn: recent[recent.length - 1]!, recent, model: model(output) });
 
 describe("LotLift Turn Intelligence", () => {
@@ -49,11 +49,73 @@ describe("LotLift Turn Intelligence", () => {
     expect(result).toMatchObject({ source: "model", say: "What would make a conversation useful for you?" });
   });
 
-  it("rejects a question that introduces a product claim", async () => {
-    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say: "Would our platform save you money?", goal: null });
+  it("permits grounded playbook synthesis beyond canned examples", async () => {
+    const wife = { ...turn("My wife is involved in this decision.", "wife"), endMs: 1 };
+    const coverage = { ...turn("Coverage is what matters to her.", "coverage"), startMs: 2, endMs: 3 };
+    const price = { ...turn("The price feels high.", "price"), startMs: 4, endMs: 5 };
+    const say = "Got it. You mentioned your wife is involved and coverage is what matters to her. When you say the price feels high, is it the monthly spend itself, or whether she'd see enough value in fixing that coverage gap?";
+    const result = await analyzeLotLiftTurn({
+      state: newLotLiftCallState("call-1"),
+      turn: price,
+      conversation: [wife, coverage, price],
+      relevantRuleIds: ["objection:spouse-partner"],
+      model: model({ event_type: "objection", playbook_rule_ids: ["objection:spouse-partner"], needs_coaching: true, say, say_evidence: [{ sentence: "You mentioned your wife is involved and coverage is what matters to her.", source: "recent_dialogue", text: wife.text }], goal: null }),
+    });
+    expect(result).toMatchObject({ source: "model", say });
+  });
+
+  it("accepts a novel, fact-free coaching question", async () => {
+    const say = "What would need to change for this to be worth revisiting?";
+    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say, say_evidence: [], goal: null });
+    expect(result).toMatchObject({ source: "model", say });
+  });
+
+  it("rejects a cited reply with an invented customer fact", async () => {
+    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say: "It sounds like your team is losing leads after hours. What would make a conversation useful for you?", say_evidence: [{ sentence: "It sounds like your team is losing leads after hours.", source: "recent_dialogue", text: "We are not interested." }], goal: null });
     expect(result.source).toBe("fallback");
   });
 
+  it("permits a free-form product question", async () => {
+    const say = "Would our platform save you money?";
+    const result = await run("We are not interested.", { playbook_rule_ids: ["objection:not-interested"], needs_coaching: true, say, goal: null });
+    expect(result).toMatchObject({ source: "model", say });
+  });
+
+  it("permits a natural paraphrase when it maps to an approved ProductFact", async () => {
+    const fact = { id: "after-hours-coverage", statement: "LotLift provides after-hours lead coverage." };
+    const say = "LotLift keeps internet leads covered after hours.";
+    const result = await analyzeLotLiftTurn({
+      state: newLotLiftCallState("call-1"),
+      turn: turn("How does LotLift help after hours?"),
+      approvedProductFacts: [fact],
+      model: model({ event_type: "discovery", needs_coaching: true, say, say_evidence: [], product_claims: [{ text: say, product_fact_id: fact.id }], goal: null }),
+    });
+    expect(result).toMatchObject({ source: "model", say });
+  });
+
+  it("rejects a product claim that cites an unrelated ProductFact", async () => {
+    const fact = { id: "after-hours-coverage", statement: "LotLift provides after-hours lead coverage." };
+    const say = "LotLift saves money.";
+    const result = await analyzeLotLiftTurn({
+      state: newLotLiftCallState("call-1"),
+      turn: turn("How does LotLift help after hours?"),
+      approvedProductFacts: [fact],
+      model: model({ event_type: "discovery", needs_coaching: true, say, say_evidence: [], product_claims: [{ text: say, product_fact_id: fact.id }], goal: null }),
+    });
+    expect(result.source).toBe("fallback");
+  });
+
+  it("rejects a pronoun-led capability claim without ProductFact provenance", async () => {
+    const text = "We miss leads after hours.";
+    const result = await run(text, { event_type: "discovery", needs_coaching: true, say: "It automatically follows up after hours. Would that help?", say_evidence: [{ sentence: "It automatically follows up after hours.", source: "recent_dialogue", text }], product_claims: [], goal: null });
+    expect(result.source).toBe("fallback");
+  });
+
+  it("rejects an implicit capability statement misclassified as customer evidence", async () => {
+    const text = "We miss leads after hours.";
+    const result = await run(text, { event_type: "discovery", needs_coaching: true, say: "It takes care of leads after hours. Would that help?", say_evidence: [{ sentence: "It takes care of leads after hours.", source: "recent_dialogue", text }], product_claims: [], goal: null });
+    expect(result.source).toBe("fallback");
+  });
   it("falls back when the local model is slow", async () => {
     const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("call-1"), turn: turn("We are not interested."), recent: [turn("We are not interested.")], timeoutMs: 1, model: async () => new Promise(() => {}) });
     expect(result).toMatchObject({ source: "fallback", event_type: "objection" });

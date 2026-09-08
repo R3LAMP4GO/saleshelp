@@ -59,7 +59,7 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     startLotLiftTurn(segment.id);
     setLotLiftLiveStatus("Thinking");
     newestProspectSegmentId = segment.id;
-    const recent = state.segments.filter((item) => item.isFinal).slice(-8);
+    const conversation = state.segments.filter((item) => item.isFinal);
     const newProspectSegments = state.segments.filter((item) => item.source === "them" && item.isFinal && !previous.segments.some((previousItem) => previousItem.id === item.id));
     const decisionEvents = newProspectSegments.map(lotLiftDecisionContextEvent).filter((event): event is CallStateEvent => event !== null);
     const currentDecisionEvent = lotLiftDecisionContextEvent(segment);
@@ -85,7 +85,7 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       if (newestProspectSegmentId !== segment.id) return;
       try {
         markLotLiftTurn(segment.id, "modelStart");
-        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, recent, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings });
+        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, conversation, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings });
         markLotLiftTurn(segment.id, "modelFirstResponse");
         markLotLiftTurn(segment.id, "modelComplete");
         if (newestProspectSegmentId !== segment.id) return;

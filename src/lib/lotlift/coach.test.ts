@@ -120,7 +120,7 @@ describe("LotLift fast reply path", () => {
       { id: "price", source: "them", speaker: 0, isFinal: true, startMs: 6, endMs: 7, text: "This is too much money." },
     ] });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(analyzer).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ current_solution: expect.objectContaining({ value: "VinSolutions" }) }), recent: expect.arrayContaining([expect.objectContaining({ id: "me" }), expect.objectContaining({ id: "wife" })]), relevantRuleIds: ["objection:no-budget"] }));
+    expect(analyzer).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ current_solution: expect.objectContaining({ value: "VinSolutions" }) }), conversation: expect.arrayContaining([expect.objectContaining({ id: "me" }), expect.objectContaining({ id: "wife" })]), relevantRuleIds: ["objection:no-budget"] }));
     expect(useStore.getState().findingSolutions["lotlift-price"]?.solution?.replies[0]?.reply).toBe("“I can see why you would want to be careful about another tool. When you say expensive, is the issue the monthly number itself, the setup effort, comparison with another option, or that the return is not clear enough?”");
   });
 

@@ -708,6 +708,10 @@ export const zhTW = {
   "todos.aiTitle": "讓 AI 依對話勾選已完成項目",
   "todos.empty": "加入這場會議要確認的事項。",
   "todos.addPlaceholder": "新增待辦…",
+  "todos.script": "話術",
+  "todos.hideScript": "收起話術",
+  "todos.scriptPlaceholder": "貼上銷售話術或談話重點…",
+  "todos.scriptHint": "會作為這場會議的教練背景。",
 
   "evaluations.title": "評估",
   "evaluations.applyTemplate": "套用模板…",
@@ -1754,6 +1758,10 @@ export const en = {
   "todos.aiTitle": "Let AI check completed items from the conversation",
   "todos.empty": "Add things to confirm in this meeting.",
   "todos.addPlaceholder": "Add todo…",
+  "todos.script": "Script",
+  "todos.hideScript": "Hide script",
+  "todos.scriptPlaceholder": "Paste a sales script or talk track…",
+  "todos.scriptHint": "Used as meeting context for coaching.",
 
   "evaluations.title": "Evaluations",
   "evaluations.applyTemplate": "Apply template…",

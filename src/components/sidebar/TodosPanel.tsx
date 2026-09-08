@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Check, Square, X, Plus, Sparkles } from "lucide-react";
+import { Check, Square, X, Plus, Sparkles, FileText } from "lucide-react";
 import { useStore } from "../../lib/store";
 import { hasProviderKey } from "../../lib/ai/settings";
 import { useI18n } from "../../i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import type { TodoItem } from "../../lib/types";
 
 /**
@@ -78,7 +79,10 @@ function AddForm() {
 export function TodosPanel() {
   const { t } = useI18n();
   const todos = useStore((s) => s.todos);
+  const meetingContext = useStore((s) => s.meetingContext);
+  const setMeetingContext = useStore((s) => s.setMeetingContext);
   const [checking, setChecking] = useState(false);
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   const done = todos.filter((x) => x.done).length;
 
@@ -106,6 +110,18 @@ export function TodosPanel() {
         <span className="shrink-0">
           {todos.length > 0 ? t("todos.doneCount", { done, total: todos.length }) : t("todos.noItems")}
         </span>
+        {todos.length === 0 && (
+          <Button
+            variant={scriptOpen ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => setScriptOpen((open) => !open)}
+            aria-expanded={scriptOpen}
+          >
+            <FileText className="size-3" />
+            {scriptOpen ? t("todos.hideScript") : t("todos.script")}
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -122,9 +138,22 @@ export function TodosPanel() {
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-1 px-3 pb-3">
           {todos.length === 0 ? (
-            <p className="px-1 pt-6 text-center text-xs text-muted-foreground">
-              {t("todos.empty")}
-            </p>
+            scriptOpen ? (
+              <div className="space-y-2 pt-2">
+                <Textarea
+                  value={meetingContext}
+                  onChange={(event) => setMeetingContext(event.target.value)}
+                  placeholder={t("todos.scriptPlaceholder")}
+                  className="min-h-40 resize-y text-sm"
+                  aria-label={t("todos.script")}
+                />
+                <p className="px-1 text-xs text-muted-foreground">{t("todos.scriptHint")}</p>
+              </div>
+            ) : (
+              <p className="px-1 pt-6 text-center text-xs text-muted-foreground">
+                {t("todos.empty")}
+              </p>
+            )
           ) : (
             todos.map((x) => <TodoRow key={x.id} todo={x} />)
           )}

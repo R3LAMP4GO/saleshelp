@@ -36,8 +36,8 @@ export function LiveCallSimulator() {
     if (coaching) setCallState((current) => reduceLotLiftCallState(current, coaching.state));
     let response = coaching?.response ?? null;
     if (mode === "local-ai" && !coaching) {
-      const recent = [...turns.map((turn) => ({ ...segment, id: `sim-${turn.id}`, text: turn.text })), segment];
-      const result = await analyzeLotLiftTurn({ state: callState, turn: segment, recent, settings });
+      const conversation = [...turns.map((turn) => ({ ...segment, id: `sim-${turn.id}`, text: turn.text })), segment];
+      const result = await analyzeLotLiftTurn({ state: callState, turn: segment, conversation, settings });
       if (result.state_events.length) setCallState((current) => result.state_events.reduce(reduceLotLiftCallState, current));
       if (result.needs_coaching && result.say?.endsWith("?")) response = { id: "contextual-question", title: "Discovery question", response: result.say, consideration: result.goal ?? "Clarify the prospect's context.", rule_id: result.playbook_rule_ids[0] ?? "question-only" };
     }
