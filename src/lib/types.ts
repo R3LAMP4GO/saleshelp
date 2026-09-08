@@ -140,7 +140,7 @@ export type FindingCategory = "decision" | "open" | "fact";
 export interface TimelineEvent {
   id: string;
   /** Sales-policy versions used for this recommendation, when profile-selected. */
-  salesMetadata?: import("./sales/meeting").SalesMeetingMetadata;
+  salesMetadata?: import("./sales/meeting").SalesRecommendationMetadata;
   /** Moment on the recording timeline (ms). */
   atMs: number;
   /** My problem vs their move → which lane the marker sits in. Absent under the

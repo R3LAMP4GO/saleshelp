@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { getSalesProfile, isApproved, registerSalesProfile, type SalesProfile } from "./profiles";
-import { salesMeetingMetadata } from "./meeting";
+import { salesMeetingMetadata, salesRecommendationMetadata } from "./meeting";
 
 const profile: SalesProfile = {
   id: "test-profile", businessId: "test-business", label: "Test", motion: "cold-outbound",
@@ -16,6 +16,12 @@ it("looks up registered profiles and persists immutable call metadata", () => {
   expect(salesMeetingMetadata(profile, { phone: "+15551234567" }, "2026-01-01T00:00:00.000Z")).toMatchObject({
     salesProfileId: profile.id, businessId: profile.businessId, playbookVersion: "2", productFactsVersion: "3", selectedAt: "2026-01-01T00:00:00.000Z",
   });
+});
+
+it("keeps prospect identifiers out of recommendation audit metadata", () => {
+  const metadata = salesMeetingMetadata(profile, { phone: "+15551234567", crmLeadId: "lead-9" });
+  expect(salesRecommendationMetadata(metadata)).not.toHaveProperty("prospect");
+  expect(salesRecommendationMetadata(metadata)).toMatchObject({ salesProfileId: profile.id, playbookVersion: "2" });
 });
 
 it("defaults approval checks to deny", () => {

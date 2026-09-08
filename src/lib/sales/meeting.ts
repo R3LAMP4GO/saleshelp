@@ -21,6 +21,14 @@ export interface SalesMeetingMetadata {
   selectedAt: string;
 }
 
+export type SalesRecommendationMetadata = Omit<SalesMeetingMetadata, "prospect">;
+
+/** Keeps policy provenance on recommendations without duplicating prospect identifiers. */
+export function salesRecommendationMetadata(metadata: SalesMeetingMetadata): SalesRecommendationMetadata {
+  const { prospect: _prospect, ...policy } = metadata;
+  return policy;
+}
+
 export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString()): SalesMeetingMetadata {
   return {
     salesProfileId: profile.id,

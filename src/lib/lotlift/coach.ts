@@ -9,6 +9,7 @@ import { analyzeLotLiftTurn } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
 import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
+import { salesRecommendationMetadata } from "../sales/meeting";
 
 type CoachEvent = { response: ApprovedLotLiftResponse; state: CallStateEvent };
 
@@ -28,7 +29,7 @@ const defaultCallStates = new LotLiftCallStateManager();
 
 function display(segment: TranscriptSegment, response: { id: string; title: string; consideration: string; response: string }, critical = false, decisionEvidence?: LotLiftFieldValue<string>): void {
   const store = useStore.getState();
-  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", salesMetadata: store.salesMetadata ?? undefined };
+  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", salesMetadata: store.salesMetadata ? salesRecommendationMetadata(store.salesMetadata) : undefined };
   if (store.findings.some((item) => item.id === finding.id)) return;
   store.addFinding(finding);
   store.setFindingSolution(finding.id, { status: "done", error: null, solution: { findingId: finding.id, replies: [{ kind: "reframe", reply: response.response, consideration: response.consideration }] } });
