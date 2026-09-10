@@ -59,7 +59,7 @@ describe("LotLift ContextPack", () => {
     ];
     const payload = buildLotLiftCompositionPayload(state, conversation[2]!, conversation, []);
     expect(payload).toMatchObject({
-      composition_version: 2,
+      composition_version: 3,
       full_transcript: conversation,
       stakeholder_context: {
         owner: [expect.objectContaining({ value: "internet manager", status: "verified" })],
@@ -67,6 +67,20 @@ describe("LotLift ContextPack", () => {
         decision_stakeholders: [expect.objectContaining({ value: "wife", status: "verified" })],
       },
     });
+    expect(payload.previous_rep_questions).toEqual([{ id: "rep", text: "Who decides?" }]);
+  });
+
+  it("keeps actual representative history outside the recent dialogue window", () => {
+    const state = newLotLiftCallState("rep-memory");
+    const conversation = [
+      segment("first-no", "them", "We are not interested.", 0),
+      segment("rep-question", "me", "Is that because coverage is consistent or it is not a priority?", 1_000),
+      ...Array.from({ length: 12 }, (_, index) => segment(`filler-${index}`, "them", `Unrelated ${index}`, 10_000 + index * 10_000)),
+      segment("current", "them", "No, we are still not interested.", 200_000),
+    ];
+    const payload = buildLotLiftCompositionPayload(state, conversation[conversation.length - 1]!, conversation, []);
+    expect(payload.previous_rep_questions).toEqual(expect.arrayContaining([expect.objectContaining({ id: "rep-question" })]));
+    expect(payload.previous_objection_responses).toEqual(expect.arrayContaining([expect.objectContaining({ rep_response: "Is that because coverage is consistent or it is not a priority?" })]));
   });
 
   it("caps recent dialogue while retaining the latest prospect turn", () => {

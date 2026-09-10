@@ -91,6 +91,19 @@ function hasUnsupportedCommercialClaim(response: string, selected: LotLiftApprov
   return !selected.allowed_claim_classes.includes("approved-product-fact") || !approvedProductFacts.some(({ statement }) => normalizedText(response).includes(normalizedText(statement)));
 }
 
+const EXPLICIT_DURABLE_FACT_FIELDS = new Set(["current_solution", "lead_arrival_point", "workflow_owner", "after_hours_process", "visibility_process", "authority", "decision_stakeholders", "stakeholders"]);
+
+/** A narrow exact-text guard: named durable facts must retain their original prospect citation. */
+function durableFactsAreCited(response: string, groundingIds: readonly string[], context: LotLiftResponseCompositionContext): boolean {
+  const visibleEvidenceIds = new Set(evidenceSegments(context).map((segment) => segment.id));
+  const normalizedResponse = normalizedText(response);
+  return context.durable_facts.every((fact) => {
+    const value = normalizedText(fact.value);
+    if (!EXPLICIT_DURABLE_FACT_FIELDS.has(fact.field) || value.length < 3 || !fact.evidence_segment_id || !visibleEvidenceIds.has(fact.evidence_segment_id)) return true;
+    return !normalizedResponse.includes(value) || groundingIds.includes(fact.evidence_segment_id);
+  });
+}
+
 function spokenResponseRejectionSubreason(response: string, selected: LotLiftApprovedResponseOption, context: LotLiftResponseCompositionContext): LotLiftSpokenResponseRejectionSubreason | null {
   if ((response.match(/\?/g)?.length ?? 0) > 1) return "multiple-questions";
   if (/[$€£¥]\s*\d|\b\d+(?:[.,]\d+)?\s*(?:%|usd|dollars?|euros?|pounds?|per month|per year)\b/i.test(response)) return "monetary-amount";
@@ -127,6 +140,7 @@ export function validateLotLiftResponseComposition(output: unknown, context: Lot
   if (!selected) return { result: null, rejection_code: "selected-move", rejection_subreason: null };
   const rejection = spokenResponseRejectionSubreason(parsed.data.spoken_response, selected, context);
   if (rejection) return { result: null, rejection_code: "spoken-response", rejection_subreason: rejection };
+  if (!durableFactsAreCited(parsed.data.spoken_response, parsed.data.grounding_segment_ids, context)) return { result: null, rejection_code: "grounding", rejection_subreason: null };
   const events = observationEvents(parsed.data.observations, context);
   if (!events) return { result: null, rejection_code: "observation", rejection_subreason: null };
   return { result: { selected_option: selected, spoken_response: parsed.data.spoken_response, state_events: [...selected.state_events, ...events], source: "model" }, rejection_code: null, rejection_subreason: null };
@@ -139,6 +153,8 @@ export function compositionPrompt(context: LotLiftResponseCompositionContext): s
     relevant_earlier_evidence: context.relevant_earlier_evidence,
     durable_call_memory: context.durable_facts,
     previous_objections_and_rep_responses: context.prior_objections,
+    previous_rep_questions: context.previous_rep_questions,
+    previous_objection_responses: context.previous_objection_responses,
     stakeholder_context: context.stakeholder_context,
     sales_script_stage: context.sales_script_stage,
     eligible_sales_moves: context.eligible_moves.map(({ state_events, ...move }) => move),

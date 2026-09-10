@@ -84,29 +84,35 @@ export const LOTLIFT_POLICY_TACTICS: Record<LotLiftPolicyTacticId, LotLiftPolicy
 };
 
 export const LOTLIFT_TACTIC_RULES: Record<LotLiftPolicyTacticId, readonly LotLiftPlaybookRuleId[]> = {
-  "permission-and-route": ["discovery:ownership"],
-  "workflow-discovery": ["discovery:lead-source", "discovery:after-hours", "discovery:visibility"],
-  "impact-clarification": ["qualification:pain"],
-  "solution-verification": ["objection:existing-crm"],
-  "decision-criteria": ["objection:need-to-think", "objection:spouse-partner", "objection:competitor"],
-  "concern-isolation": ["objection:no-budget"],
-  "consented-follow-up": ["objection:busy", "objection:call-later", "objection:send-information"],
+  "permission-and-route": ["discovery:ownership", "objection:not-interested"],
+  "workflow-discovery": ["discovery:lead-source", "discovery:after-hours", "discovery:visibility", "objection:source-volume", "objection:team-size"],
+  "impact-clarification": ["qualification:pain", "objection:status-quo"],
+  "solution-verification": ["objection:existing-crm", "objection:existing-workflow", "objection:competitor", "objection:comparison"],
+  "decision-criteria": ["objection:need-to-think", "objection:spouse-partner", "objection:comparison", "objection:trial", "objection:build-it", "objection:staff-adoption", "objection:new-company"],
+  "concern-isolation": ["objection:no-budget", "objection:roi"],
+  "consented-follow-up": ["objection:busy", "objection:call-later", "objection:send-information", "objection:contract", "objection:previous-caller"],
   "scoped-next-step": ["close:workflow-check"],
-  "truthful-limitation": ["objection:direct-integration"],
-  "respectful-exit": ["objection:do-not-contact", "objection:not-interested"],
+  "truthful-limitation": ["objection:direct-integration", "objection:marketplace-coverage", "objection:ai-automation", "objection:data-security", "objection:provider-authorization"],
+  "respectful-exit": ["objection:do-not-contact"],
 };
 
 export const LOTLIFT_APPROVED_MOVE_IDS = [
   "terminal-close", "disqualified-close", "abuse-close", "hard-integration-close", "unsupported-fit-close", "second-no-close", "O2",
-  "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "price-pain-value", "price-stakeholder-criteria", "price-next-criterion", "crm-coverage", "impact-coverage", "identify-owner", "lead-source",
-  "gap-after-hours", "gap-visibility", "confirm-authority", "workflow-check",
+  "first-refusal", "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "price-pain-value", "price-stakeholder-criteria", "price-next-criterion", "crm-coverage", "impact-coverage", "identify-owner", "lead-source",
+  "gap-after-hours", "gap-visibility", "confirm-authority", "workflow-check", "timing-follow-up", "information-topic", "decision-criteria", "existing-workflow-coverage", "fit-source-volume", "competitor-criteria", "security-authorization", "limitation-route",
 ] as const;
 export type LotLiftApprovedMoveId = typeof LOTLIFT_APPROVED_MOVE_IDS[number];
 
+export const LOTLIFT_MOVE_RULES: Record<LotLiftApprovedMoveId, readonly LotLiftPlaybookRuleId[]> = {
+  "terminal-close": ["objection:do-not-contact"], "disqualified-close": ["objection:direct-integration"], "abuse-close": ["objection:not-interested"], "hard-integration-close": ["objection:direct-integration"], "unsupported-fit-close": ["objection:source-volume"], "second-no-close": ["objection:not-interested"], "O2": ["discovery:ownership"],
+  "first-refusal": ["objection:not-interested"], "price-isolation": ["objection:no-budget"], "price-value-workflow-check": ["objection:no-budget", "close:workflow-check"], "price-value-uncertainty": ["objection:no-budget"], "price-pain-value": ["objection:no-budget"], "price-stakeholder-criteria": ["objection:spouse-partner"], "price-next-criterion": ["objection:no-budget"], "crm-coverage": ["objection:existing-crm"], "impact-coverage": ["qualification:pain"], "identify-owner": ["discovery:ownership"], "lead-source": ["discovery:lead-source"],
+  "gap-after-hours": ["discovery:after-hours"], "gap-visibility": ["discovery:visibility"], "confirm-authority": ["qualification:authority"], "workflow-check": ["close:workflow-check"], "timing-follow-up": ["objection:busy", "objection:call-later", "objection:contract"], "information-topic": ["objection:send-information"], "decision-criteria": ["objection:need-to-think", "objection:spouse-partner", "objection:trial", "objection:build-it", "objection:new-company"], "existing-workflow-coverage": ["objection:existing-workflow", "objection:status-quo"], "fit-source-volume": ["objection:source-volume", "objection:team-size"], "competitor-criteria": ["objection:competitor", "objection:comparison"], "security-authorization": ["objection:data-security", "objection:ai-automation", "objection:provider-authorization"], "limitation-route": ["objection:marketplace-coverage", "objection:roi"],
+};
+
 export const LOTLIFT_MOVE_TACTICS: Record<LotLiftApprovedMoveId, LotLiftPolicyTacticId> = {
   "terminal-close": "respectful-exit", "disqualified-close": "respectful-exit", "abuse-close": "respectful-exit", "hard-integration-close": "truthful-limitation", "unsupported-fit-close": "truthful-limitation", "second-no-close": "respectful-exit", "O2": "permission-and-route",
-  "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "price-pain-value": "concern-isolation", "price-stakeholder-criteria": "decision-criteria", "price-next-criterion": "concern-isolation", "crm-coverage": "solution-verification", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
-  "gap-after-hours": "workflow-discovery", "gap-visibility": "workflow-discovery", "confirm-authority": "solution-verification", "workflow-check": "scoped-next-step",
+  "first-refusal": "permission-and-route", "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "price-pain-value": "concern-isolation", "price-stakeholder-criteria": "decision-criteria", "price-next-criterion": "concern-isolation", "crm-coverage": "solution-verification", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
+  "gap-after-hours": "workflow-discovery", "gap-visibility": "workflow-discovery", "confirm-authority": "solution-verification", "workflow-check": "scoped-next-step", "timing-follow-up": "consented-follow-up", "information-topic": "consented-follow-up", "decision-criteria": "decision-criteria", "existing-workflow-coverage": "solution-verification", "fit-source-volume": "workflow-discovery", "competitor-criteria": "solution-verification", "security-authorization": "truthful-limitation", "limitation-route": "truthful-limitation",
 };
 
 const isVerified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
@@ -141,10 +147,12 @@ export function validateLotLiftPolicyPack(input: {
   tactics?: Record<LotLiftPolicyTacticId, LotLiftPolicyTactic>;
   tacticRules?: Record<LotLiftPolicyTacticId, readonly string[]>;
   moveTactics?: Record<string, LotLiftPolicyTacticId>;
+  moveRules?: Record<string, readonly string[]>;
 } = {}): void {
   const tactics = input.tactics ?? LOTLIFT_POLICY_TACTICS;
   const tacticRules = input.tacticRules ?? LOTLIFT_TACTIC_RULES;
   const moveTactics = input.moveTactics ?? LOTLIFT_MOVE_TACTICS;
+  const moveRules: Record<string, readonly string[]> = input.moveRules ?? LOTLIFT_MOVE_RULES;
   const stages: readonly LotLiftConversationStage[] = ["owner-identification", "relevance-discovery", "gap-confirmation", "qualification", "meeting-invitation", "terminal", "disqualified"];
   for (const tactic of Object.values(tactics)) {
     if (tactic.id !== LOTLIFT_POLICY_TACTIC_IDS.find((id) => id === tactic.id)) throw new Error(`LotLift policy has unknown tactic ${tactic.id}.`);
@@ -157,6 +165,8 @@ export function validateLotLiftPolicyPack(input: {
   for (const [moveId, tacticId] of Object.entries(moveTactics)) {
     if (!LOTLIFT_APPROVED_MOVE_IDS.includes(moveId as LotLiftApprovedMoveId)) throw new Error(`LotLift policy references unknown move ${moveId}.`);
     if (!LOTLIFT_POLICY_TACTIC_IDS.includes(tacticId)) throw new Error(`LotLift policy references unknown tactic ${tacticId}.`);
+    const rules = moveRules[moveId];
+    if (!rules?.length || !rules.every((ruleId) => LOTLIFT_REQUIRED_RULE_IDS.includes(ruleId as LotLiftPlaybookRuleId))) throw new Error(`LotLift policy has no valid rule for ${moveId}.`);
   }
 }
 

@@ -122,10 +122,38 @@ describe("LotLift next moves", () => {
     expect(move.response).not.toMatch(/15-minute|workflow check|open to that/i);
   });
 
-  it("ends after a second substantive refusal", () => {
+  it("progresses first refusal state organically, then exits only on the second refusal", () => {
     let state = newLotLiftCallState("second-no");
-    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "D1", substantive_refusal: true });
-    const move = select(state, "No thanks, not interested.");
-    expect(move).toMatchObject({ id: "second-no-close", source: "terminal-policy" });
+    const first = select(state, "No thanks, not interested.");
+    expect(first).toMatchObject({ id: "first-refusal", tactic_id: "permission-and-route", rule_ids: ["objection:not-interested"] });
+    state = first.state_events.reduce(reduceLotLiftCallState, state);
+    const second = select(state, "No thanks, not interested.");
+    expect(second).toMatchObject({ id: "second-no-close", source: "terminal-policy" });
+  });
+
+  it("allows genuine re-engagement after a refusal", () => {
+    let state = newLotLiftCallState("re-engagement");
+    state = select(state, "No thanks, not interested.").state_events.reduce(reduceLotLiftCallState, state);
+    const move = select(state, "Actually, our leads do sit overnight sometimes.");
+    expect(move).toMatchObject({ source: "approved-move" });
+    expect(move.id).not.toBe("second-no-close");
+  });
+
+  it.each([
+    ["Send information.", "information-topic", "objection:send-information"],
+    ["Call me later.", "timing-follow-up", "objection:call-later"],
+    ["We need to think about it.", "decision-criteria", "objection:need-to-think"],
+    ["We already have a BDC.", "existing-workflow-coverage", "objection:existing-crm"],
+    ["We are happy with what we have.", "existing-workflow-coverage", "objection:status-quo"],
+    ["We are too small.", "fit-source-volume", "objection:team-size"],
+    ["We use another provider.", "competitor-criteria", "objection:competitor"],
+    ["We need security details.", "security-authorization", "objection:data-security"],
+    ["Do you support every marketplace?", "security-authorization", "objection:marketplace-coverage"],
+    ["Can we have a free trial?", "decision-criteria", "objection:trial"],
+  ])("routes %s to a policy-bounded non-discovery candidate", (text, id, ruleId) => {
+    const candidate = select(newLotLiftCallState(`matrix-${id}`), text);
+    expect(candidate).toMatchObject({ id, rule_ids: [ruleId], source: "approved-move" });
+    expect(candidate.response).toBe(candidate.fallback_response);
+    expect(candidate.prohibited_behavior).toBeTruthy();
   });
 });

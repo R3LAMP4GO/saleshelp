@@ -7,6 +7,7 @@ import { LOTLIFT_COLD_CALL_POLICIES, coldCallStage, type LotLiftApprovedCallCont
 const RECENT_WINDOW_MS = 90_000;
 const MAX_DURABLE_FACTS = 14;
 const MAX_PREVIOUS_OBJECTIONS = 4;
+const MAX_PREVIOUS_REP_QUESTIONS = 4;
 const MAX_RECENT_DIALOGUE = 12;
 const MAX_PRODUCT_FACTS = 8;
 const MAX_TEXT_CHARS = 500;
@@ -39,7 +40,7 @@ export type LotLiftStakeholderContext = {
 };
 
 export type LotLiftCompositionPayload = {
-  composition_version: 2;
+  composition_version: 3;
   /** Retained locally for validation/audit; never blindly put in the model prompt. */
   full_transcript: TranscriptSegment[];
   latest_prospect_turn: Pick<TranscriptSegment, "id" | "text">;
@@ -47,6 +48,10 @@ export type LotLiftCompositionPayload = {
   relevant_earlier_evidence: Array<Pick<TranscriptSegment, "id" | "source" | "text">>;
   durable_facts: ContextPackFact[];
   prior_objections: ContextPackObjection[];
+  /** Finalized representative questions only; suggested copy is never included. */
+  previous_rep_questions: Array<Pick<TranscriptSegment, "id" | "text">>;
+  /** Actual representative responses following earlier recognized objections. */
+  previous_objection_responses: ContextPackObjection[];
   stakeholder_context: LotLiftStakeholderContext;
   sales_script_stage: { conversation_stage: import("./callState").LotLiftConversationStage; cold_call_stage: LotLiftColdCallStage };
   approved_objection_card: { id: string; rule_id: LotLiftPlaybookRuleId } | null;
@@ -173,6 +178,13 @@ function relevantEarlierEvidence(state: LotLiftCallState, turn: TranscriptSegmen
   return conversation.filter((segment) => segment.isFinal && segment.source === "them" && segment.id !== turn.id && ids.has(segment.id)).slice(-8).map(({ id, source, text: evidenceText }) => ({ id, source, text: boundedText(evidenceText) }));
 }
 
+function previousRepQuestions(conversation: readonly TranscriptSegment[], turn: TranscriptSegment): Array<Pick<TranscriptSegment, "id" | "text">> {
+  return conversation
+    .filter((segment) => segment.isFinal && segment.source === "me" && segment.endMs <= turn.endMs && /\?|\b(?:who|what|when|where|how|is|are|do|does|would|could)\b/i.test(segment.text))
+    .slice(-MAX_PREVIOUS_REP_QUESTIONS)
+    .map(({ id, text }) => ({ id, text: boundedText(text, 220) }));
+}
+
 function stakeholderContext(state: LotLiftCallState): LotLiftStakeholderContext {
   return {
     owner: values("workflow_owner", [state.workflow_owner]),
@@ -195,13 +207,15 @@ export function buildLotLiftCompositionPayload(
   const transcript = fullTranscript(conversation);
   const context = buildLotLiftContextPack(state, turn, transcript, ruleIds, approvedProductFacts, _approvedCallContext);
   return {
-    composition_version: 2,
+    composition_version: 3,
     full_transcript: transcript,
     latest_prospect_turn: { id: turn.id, text: boundedText(turn.text) },
     recent_dialogue: context.recent_dialogue.map(({ id, source, text }) => ({ id, source, text })),
     relevant_earlier_evidence: relevantEarlierEvidence(state, turn, transcript),
     durable_facts: lotLiftDurableFacts(state).slice(0, MAX_DURABLE_FACTS),
     prior_objections: lotLiftPriorObjections(state, conversation, turn).slice(-MAX_PREVIOUS_OBJECTIONS),
+    previous_rep_questions: previousRepQuestions(transcript, turn),
+    previous_objection_responses: lotLiftPriorObjections(state, conversation, turn).filter((objection) => objection.rep_response !== null).slice(-MAX_PREVIOUS_OBJECTIONS),
     stakeholder_context: stakeholderContext(state),
     sales_script_stage: { conversation_stage: deriveLotLiftConversationStage(state), cold_call_stage: coldCallStage(conversation) },
     approved_objection_card: route && ruleIds.includes(route.rule_id) ? { id: route.id, rule_id: route.rule_id } : null,

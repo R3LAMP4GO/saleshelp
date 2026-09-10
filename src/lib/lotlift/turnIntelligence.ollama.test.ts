@@ -22,8 +22,10 @@ describe("LotLift Ollama bounded selection", () => {
     expect(request.format.properties).toEqual(expect.objectContaining({ event_type: expect.any(Object), selected_move_id: expect.any(Object), grounding_segment_ids: expect.any(Object), spoken_response: expect.any(Object) }));
     const prompt = request.messages[1].content as string;
     const payload = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only.")));
-    expect(payload).toMatchObject({ latest_prospect_turn: { id: "ollama-turn" }, sales_script_stage: expect.any(Object), eligible_sales_moves: [expect.objectContaining({ id: "identify-owner", approved_strategy: "permission-and-route" })] });
+    expect(payload).toMatchObject({ latest_prospect_turn: { id: "ollama-turn" }, sales_script_stage: expect.any(Object), eligible_sales_moves: [expect.objectContaining({ id: "identify-owner", rule_ids: expect.arrayContaining(["discovery:ownership"]), approved_strategy: expect.any(String) })] });
     expect(payload).toHaveProperty("previous_objections_and_rep_responses");
+    expect(payload).toHaveProperty("previous_rep_questions");
+    expect(payload).toHaveProperty("previous_objection_responses");
     expect(payload).toHaveProperty("stakeholder_context");
   });
 

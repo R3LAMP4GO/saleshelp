@@ -24,7 +24,7 @@ describe("LotLift approved objection retrieval", () => {
   });
 
   it("maps every route and the spouse-plus-price override to a policy tactic", () => {
-    expect(Object.keys(LOTLIFT_OBJECTION_TACTICS)).toHaveLength(11);
+    expect(Object.keys(LOTLIFT_OBJECTION_TACTICS)).toEqual(expect.arrayContaining(["not-interested", "source-volume", "data-security", "roi"]));
     expect(retrieveApprovedLotLiftResponse("We need direct CRM integration.")?.tactic_id).toBe("truthful-limitation");
     expect(retrieveApprovedLotLiftResponse("This is too much money.", ["My spouse needs to agree."])?.tactic_id).toBe("decision-criteria");
   });

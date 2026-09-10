@@ -7,7 +7,6 @@ import { type CallStateEvent, type LotLiftCallState } from "./callState";
 import { isDoNotContactRequest } from "./dnc";
 import { resolveLotLiftTurnDeadline } from "./localDeadline";
 import { log } from "../log";
-import { LOTLIFT_TACTIC_RULES } from "./policyPack";
 import { lotLiftMoveCandidates, type LotLiftNextMove } from "./nextMove";
 import {
   buildLotLiftResponseCompositionContext,
@@ -172,7 +171,7 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
 
   const eligibleCandidates = candidates;
   const fallbackMove = eligibleCandidates[0]!;
-  const ruleIds = [...new Set([...suppliedRuleIds, ...eligibleCandidates.flatMap((candidate) => LOTLIFT_TACTIC_RULES[candidate.tactic_id])])].slice(0, 3) as LotLiftPlaybookRuleId[];
+  const ruleIds = [...new Set([...suppliedRuleIds, ...eligibleCandidates.flatMap((candidate) => candidate.rule_ids)])].slice(0, 3) as LotLiftPlaybookRuleId[];
   const context = buildLotLiftResponseCompositionContext({
     state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
     approvedProductFacts: opts.approvedProductFacts, settings,

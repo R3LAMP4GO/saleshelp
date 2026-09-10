@@ -6,7 +6,9 @@ import {
   type LotLiftConversationStage,
   type LotLiftDiscoveryDimension,
 } from "./callState";
-import { LOTLIFT_POLICY_TACTICS, lotLiftPolicyContext, lotLiftTacticForMove, missingLotLiftTacticContext, type LotLiftClaimClass, type LotLiftPolicyTacticId } from "./policyPack";
+import { LOTLIFT_MOVE_RULES, LOTLIFT_POLICY_TACTICS, lotLiftPolicyContext, lotLiftTacticForMove, missingLotLiftTacticContext, type LotLiftClaimClass, type LotLiftPolicyTacticId } from "./policyPack";
+import { lotLiftPlaybookRule, type LotLiftPlaybookRuleId } from "./playbook";
+import { retrieveApprovedLotLiftResponse } from "./objections";
 import { lotLiftIdentityResponse } from "./turnEngine";
 
 export type LotLiftMoveSource = "approved-move" | "terminal-policy";
@@ -21,6 +23,7 @@ export interface LotLiftNextMove {
   stage: LotLiftConversationStage;
   source: LotLiftMoveSource;
   tactic_id: LotLiftPolicyTacticId;
+  rule_ids: readonly LotLiftPlaybookRuleId[];
   allowed_claim_classes: readonly LotLiftClaimClass[];
   candidate_reason: string;
   approved_strategy: string;
@@ -49,7 +52,10 @@ function progress(move_id: string, discovery_dimension?: LotLiftDiscoveryDimensi
 function move(id: string, title: string, goal: string, response: string, stage: LotLiftConversationStage, source: LotLiftMoveSource, state_events: CallStateEvent[], discovery_dimension?: LotLiftDiscoveryDimension, candidate_reason = "deterministic policy route"): LotLiftNextMove {
   const tactic_id = lotLiftTacticForMove(id);
   const tactic = LOTLIFT_POLICY_TACTICS[tactic_id];
-  return { id, title, goal, response, fallback_response: response, stage, source, tactic_id, allowed_claim_classes: tactic.allowed_claim_classes, candidate_reason, approved_strategy: tactic.id, prohibited_behavior: tactic.forbidden_when.join(", ") || "No additional prohibited condition.", state_events, discovery_dimension };
+  const rule_ids = LOTLIFT_MOVE_RULES[id as keyof typeof LOTLIFT_MOVE_RULES];
+  if (!rule_ids?.length) throw new Error(`LotLift move ${id} is missing policy rules.`);
+  const primaryRule = lotLiftPlaybookRule(rule_ids[0]);
+  return { id, title, goal, response, fallback_response: response, stage, source, tactic_id, rule_ids, allowed_claim_classes: tactic.allowed_claim_classes, candidate_reason, approved_strategy: primaryRule.approved_strategy, prohibited_behavior: primaryRule.prohibited_behavior, state_events, discovery_dimension };
 }
 
 /**
@@ -76,7 +82,7 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   const hasFact = (items: readonly { value: string | null }[]) => items.some((fact) => Boolean(fact.value));
   const hasPain = hasFact(state.pain_points) || Boolean(state.after_hours_process.value) || Boolean(state.visibility_process.value);
   const hasStakeholder = hasFact(state.decision_stakeholders) || hasFact(state.stakeholders);
-  const priceWasIsolated = state.last_move_id === "price-isolation" || state.last_move_id === "price-pain-value";
+  const priceWasIsolated = input.conversation.some((segment) => segment.isFinal && segment.source === "me" && /monthly spend|setup effort|another option|feels worth|concern the spend/i.test(segment.text));
 
   if (stage === "terminal" || state.do_not_contact) return one("terminal-close", "Close the call", "Honor the prospect's terminal decision.", "Understood. I’ll leave it there. Thanks for your time.", "terminal", "terminal-policy", [progress("terminal-close")]);
   if (stage === "disqualified") return one("disqualified-close", "Not a fit", "Close without pursuing a meeting.", "Understood. I do not want to pretend this is the right fit. Thanks for your time.", "disqualified", "terminal-policy", [progress("disqualified-close")]);
@@ -84,9 +90,28 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   if (HARD_INTEGRATION.test(text)) return one("hard-integration-close", "Not a fit", "A required direct CRM/DMS integration disqualifies this workflow.", "Understood. If direct CRM or DMS integration is required, I should not pretend this is the right fit. Thanks for your time.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Required direct CRM/DMS integration", status: "verified", evidence } }, progress("hard-integration-close")]);
   if (UNSUPPORTED_FIT.test(text)) return one("unsupported-fit-close", "Not a fit", "Do not push a meeting for an unsupported lead workflow.", "That may mean LotLift is not worth adding. I’ll leave it there. Thanks for your time.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Unsupported online inquiry workflow", status: "verified", evidence } }, progress("unsupported-fit-close")]);
   if (REFUSAL.test(text) && state.substantive_refusal_count >= 1) return one("second-no-close", "Close the call", "Respect the second substantive refusal.", "Understood. I’ll leave it there. Thanks for your time.", "terminal", "terminal-policy", [progress("second-no-close", undefined, true)]);
+  if (REFUSAL.test(text)) {
+    const rule = lotLiftPlaybookRule("objection:not-interested");
+    return one("first-refusal", "Clarify the first refusal", "Ask one brief coverage question, then respect a second no.", rule.good_examples[0]!, stage, "approved-move", [...facts, progress("first-refusal", undefined, true)], undefined, "first substantive refusal receives the canonical one-question response");
+  }
 
   const identityResponse = lotLiftIdentityResponse(turn, state, input.approvedRepIdentity);
   if (identityResponse) return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", identityResponse, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
+
+  const routedObjection = retrieveApprovedLotLiftResponse(text, input.conversation.filter((segment) => segment.source === "them" && segment.id !== turn.id).map((segment) => segment.text));
+  if (routedObjection && !["price", "price-with-spouse", "not-interested"].includes(routedObjection.id)) {
+    const routeMoveId = ["busy", "call-later", "contract", "previous-caller"].includes(routedObjection.id) ? "timing-follow-up"
+      : routedObjection.id === "send-information" ? "information-topic"
+      : ["need-to-think", "spouse-partner", "staff-adoption", "build-it", "trial", "new-company"].includes(routedObjection.id) ? "decision-criteria"
+      : ["existing-solution", "status-quo"].includes(routedObjection.id) ? "existing-workflow-coverage"
+      : ["source-volume", "team-size"].includes(routedObjection.id) ? "fit-source-volume"
+      : ["competitor", "comparison"].includes(routedObjection.id) ? "competitor-criteria"
+      : ["direct-integration", "marketplace-coverage", "ai-automation", "data-security", "provider-authorization"].includes(routedObjection.id) ? "security-authorization"
+      : "limitation-route";
+    const rule = lotLiftPlaybookRule(routedObjection.rule_id);
+    const candidate = move(routeMoveId, rule.intent, rule.objective, routedObjection.response, stage, "approved-move", [...facts, progress(routeMoveId)], undefined, `recognized ${routedObjection.rule_id} route`);
+    return [{ ...candidate, rule_ids: [routedObjection.rule_id], approved_strategy: rule.approved_strategy, prohibited_behavior: rule.prohibited_behavior }];
+  }
 
   if (PRICE_CONCERN.test(text)) {
     const candidates: LotLiftNextMove[] = [];

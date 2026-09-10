@@ -22,8 +22,8 @@ describe("LotLift bounded local SalesPilot", () => {
     const firstCandidates = lotLiftMoveCandidates({ state: newLotLiftCallState("first"), turn: first, conversation: [first] });
     expect(firstCandidates).toHaveLength(1);
     const firstResult = await run(newLotLiftCallState("first"), [first], new Error("offline"));
-    expect(firstResult).toMatchObject({ source: "fallback", selected_move: { id: "identify-owner" } });
-    const secondState = stateWith([{ type: "coaching-progress", move_id: "identify-owner", substantive_refusal: true }]);
+    expect(firstResult).toMatchObject({ source: "fallback", selected_move: { id: "first-refusal" } });
+    const secondState = stateWith(firstCandidates[0]!.state_events);
     const second = prospect("second", "No thanks, we're not interested.");
     const secondResult = await run(secondState, [second], new Error("offline"));
     expect(secondResult).toMatchObject({ source: "hard-rule", move_id: "second-no-close" });
@@ -34,8 +34,8 @@ describe("LotLift bounded local SalesPilot", () => {
     const afterHours = prospect("after-hours", "Usually, but things after hours can sit until the morning.", 2_000);
     const current = prospect("current", "We already have a CRM though.", 4_000);
     const state = stateWith([scalar("current_solution", "VinSolutions", "crm"), scalar("after_hours_process", "things after hours can sit until the morning", "after-hours")]);
-    const result = await run(state, [crm, rep("r", "Does everything get assigned there?", 1_000), afterHours, current], output("crm-coverage", "That makes sense. When things sit until morning, what happens to those inquiries?", ["current", "after-hours"]));
-    expect(result).toMatchObject({ source: "model", move_id: "crm-coverage" });
+    const result = await run(state, [crm, rep("r", "Does everything get assigned there?", 1_000), afterHours, current], output("existing-workflow-coverage", "That makes sense. When things sit until morning, what happens to those inquiries?", ["current", "after-hours"]));
+    expect(result).toMatchObject({ source: "model", move_id: "existing-workflow-coverage" });
     expect(result.spoken_response).toContain("sit until morning");
     expect(result.spoken_response).not.toMatch(/which CRM|replace/i);
   });
@@ -60,10 +60,12 @@ describe("LotLift bounded local SalesPilot", () => {
     const pain = stateWith([fact("pain_points", "leads sit until morning", "pain")]);
     const stakeholder = stateWith([fact("decision_stakeholders", "wife", "wife"), scalar("workflow_owner", "manager", "wife"), scalar("authority", "owner", "wife")]);
     const repeated = stateWith([{ type: "coaching-progress", move_id: "price-isolation" }]);
+    const priorPriceQuestion = rep("prior-price", "Is the concern the monthly spend itself or setup effort?", -1_000);
     expect(lotLiftMoveCandidates({ state: pain, turn: price, conversation: [price] }).map((move) => move.id)).toContain("price-pain-value");
     expect(lotLiftMoveCandidates({ state: stakeholder, turn: price, conversation: [price] }).map((move) => move.id)).toContain("price-stakeholder-criteria");
     expect(plain[0]!.id).toBe("price-isolation");
-    expect(lotLiftMoveCandidates({ state: repeated, turn: price, conversation: [price] })[0]!.id).toBe("price-next-criterion");
+    expect(lotLiftMoveCandidates({ state: repeated, turn: price, conversation: [priorPriceQuestion, price] })[0]!.id).toBe("price-next-criterion");
+    expect(lotLiftMoveCandidates({ state: repeated, turn: price, conversation: [price] })[0]!.id).toBe("price-isolation");
   });
 
   it("does not offer irrelevant early evidence to the model", async () => {
@@ -80,6 +82,14 @@ describe("LotLift bounded local SalesPilot", () => {
     const state = stateWith([fact("pain_points", "Leads sit until morning after hours", "early")]);
     const result = await run(state, [early, ...filler, price], output("price-pain-value", "I hear you. Since leads sit until morning after hours, is the concern the spend or whether closing that gap is worth it?", ["price", "early"]));
     expect(result).toMatchObject({ source: "model", move_id: "price-pain-value" });
+  });
+
+  it("rejects explicit durable facts when their original evidence is not cited", async () => {
+    const crm = prospect("crm", "We use VinSolutions for online leads.", 0);
+    const price = prospect("price", "This is too expensive.", 1_000);
+    const state = stateWith([scalar("current_solution", "VinSolutions", "crm")]);
+    const result = await run(state, [crm, price], output("price-isolation", "I hear you. Since VinSolutions is in place, is the concern the spend or the value?", ["price"]));
+    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "price-isolation" });
   });
 
   it("keeps DNC deterministic and validates bad local output to the visible fallback", async () => {
@@ -132,7 +142,7 @@ describe("LotLift bounded local SalesPilot", () => {
     const turn = prospect("new-crm", "We use DealerSocket CRM now.");
     const result = await run(state, [turn], output("crm-coverage", "That makes sense. When does that workflow leave an inquiry waiting?", ["new-crm"], [{ field: "current_solution", value: "DealerSocket", evidence_segment_id: "new-crm" }]));
 
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "crm-coverage" });
+    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "existing-workflow-coverage" });
   });
 
   it("permits the workflow-check move only after its verified policy gates", async () => {

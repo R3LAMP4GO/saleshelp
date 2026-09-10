@@ -19,6 +19,7 @@ const outputPath = process.env.LOTLIFT_BENCH_OUTPUT ?? `tmp/lotlift-local-benchm
 const IDEAL_WARM_P95_TARGET_MS = 2_000;
 
 const segment = (id: string, text: string): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 100 });
+const rep = (id: string, text: string): TranscriptSegment => ({ id, text, source: "me", speaker: 1, isFinal: true, startMs: 0, endMs: 100 });
 const price = segment("price", "This is too much money for us.");
 const spouse = segment("spouse", "My wife needs to weigh in before we decide.");
 const spousePrice = segment("spouse-price", "This is too much money for us.");
@@ -35,11 +36,24 @@ const spousePriceState = reduceLotLiftCallState(newLotLiftCallState("spouse-pric
   fact: { value: "wife", status: "verified", evidence: { segment_id: spouse.id, text: spouse.text } },
 });
 
+const refusal = segment("first-refusal", "No thanks, we are not interested.");
+const marketplace = segment("marketplace", "Do you support every marketplace?");
+const later = segment("later", "Please call me later.");
+const repeatedPrice = segment("repeated-price", "This is still too expensive.");
+const earlyAfterHours = segment("early-after-hours", "Leads sit overnight after hours.");
+const longCallPrice = segment("long-price", "The price still sounds high.");
+const longCallState = reduceLotLiftCallState(newLotLiftCallState("long-call"), { type: "append", field: "pain_points", fact: { value: "Leads sit overnight after hours", status: "verified", evidence: { segment_id: earlyAfterHours.id, text: earlyAfterHours.text } } });
+
 const fixtures = [
   { id: "owner", state: newLotLiftCallState("owner"), turn: segment("owner", "Okay."), conversation: [segment("owner", "Okay.")], expectedMove: "identify-owner", expectedStrategy: "permission-and-route" },
-  { id: "price", state: newLotLiftCallState("price"), turn: price, conversation: [price], expectedMove: "price-isolation", expectedStrategy: "concern-isolation" },
-  { id: "value", state: priceValueState, turn: value, conversation: [price, value], expectedMove: "price-value-uncertainty", expectedStrategy: "decision-criteria" },
-  { id: "spouse-price", state: spousePriceState, turn: spousePrice, conversation: [spouse, spousePrice], expectedMove: "price-stakeholder-criteria", expectedStrategy: "decision-criteria" },
+  { id: "first-refusal", state: newLotLiftCallState("first-refusal"), turn: refusal, conversation: [refusal], expectedMove: "first-refusal", expectedStrategy: "Ask one brief coverage question, then respect a second no." },
+  { id: "timing", state: newLotLiftCallState("timing"), turn: later, conversation: [later], expectedMove: "timing-follow-up", expectedStrategy: "Ask when consented follow-up would be useful and what should be covered." },
+  { id: "marketplace-limitation", state: newLotLiftCallState("marketplace"), turn: marketplace, conversation: [marketplace], expectedMove: "security-authorization", expectedStrategy: "State that support is source-specific and ask which sources matter." },
+  { id: "price", state: newLotLiftCallState("price"), turn: price, conversation: [price], expectedMove: "price-isolation", expectedStrategy: "Clarify the concern before discussing price." },
+  { id: "repeated-price-question", state: newLotLiftCallState("repeated-price"), turn: repeatedPrice, conversation: [rep("prior-price-question", "Is the concern the monthly spend itself, setup effort, another option, or value?"), repeatedPrice], expectedMove: "price-next-criterion", expectedStrategy: "Clarify the concern before discussing price." },
+  { id: "value", state: priceValueState, turn: value, conversation: [price, value], expectedMove: "price-value-uncertainty", expectedStrategy: "Clarify the decision criterion without promising value." },
+  { id: "spouse-price", state: spousePriceState, turn: spousePrice, conversation: [spouse, spousePrice], expectedMove: "price-stakeholder-criteria", expectedStrategy: "Learn stakeholder criteria without pressure." },
+  { id: "long-call-durable-context", state: longCallState, turn: longCallPrice, conversation: [earlyAfterHours, ...Array.from({ length: 18 }, (_, index) => segment(`long-filler-${index}`, `Unrelated call detail ${index}.`)), longCallPrice], expectedMove: "price-pain-value", expectedStrategy: "Clarify the concern before discussing price." },
 ] as const;
 
 type OllamaResponse = { message?: { content?: string }; eval_count?: number; model?: string };

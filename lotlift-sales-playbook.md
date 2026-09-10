@@ -11,7 +11,7 @@ sources:
 
 ## Call objective
 
-Book a product demo.
+Earn a **15-minute Lead Response Workflow Check**. It does not sell LotLift on the first call.
 
 ## North star
 
@@ -48,7 +48,7 @@ Confirm a real workflow gap, authority path, and next step.
 
 ### stage:close
 
-Book a product demo when the prospect confirms relevance.
+Book a 15-minute Lead Response Workflow Check when the prospect confirms relevance.
 
 ## Objection rules
 
@@ -324,6 +324,166 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
   - “Absolutely. I’ll mark this number do-not-call. Thanks for letting me know.”
 - **Prohibited behavior:** Do not sell, ask a follow-up, or evade the request.
 - **Exit condition:** The acknowledgement is delivered and no further sales response occurs.
+
+### objection:existing-workflow
+- **Intent:** Prospect says a CRM, BDC, salesperson, or current process covers leads.
+- **When to use:** They describe a CRM, BDC, salespeople, or satisfaction with the current system.
+- **Objective:** Verify ownership and after-hours coverage without attacking their process.
+- **Approved strategy:** Ask how a new inquiry is assigned and verified when the usual person is unavailable.
+- **Good examples:**
+  - “That sounds like a solid process. How do you verify coverage after hours or when the usual person is off?”
+- **Prohibited behavior:** Do not disparage the current system or claim LotLift replaces it.
+- **Exit condition:** Coverage is verified, or a specific handoff gap appears.
+
+### objection:source-volume
+- **Intent:** Prospect questions source support or says inquiry volume is low.
+- **When to use:** They mention unsupported sources, no marketplace inquiries, or low volume.
+- **Objective:** Establish whether a supported, meaningful inbound workflow exists.
+- **Approved strategy:** Ask which sources matter and roughly how many inquiries they receive.
+- **Good examples:**
+  - “Which sources generate most buyer inquiries, and roughly how many arrive in a normal month?”
+- **Prohibited behavior:** Do not assume a source is supported or that volume makes LotLift worthwhile.
+- **Exit condition:** Viable source evidence is captured, or the workflow is not a fit.
+
+### objection:team-size
+- **Intent:** Prospect says the dealership is too small or lacks staff capacity.
+- **When to use:** They cite team size or staffing as the reason not to proceed.
+- **Objective:** Learn whether coverage or volume makes the workflow relevant.
+- **Approved strategy:** Ask how many people share inquiry response.
+- **Good examples:**
+  - “How many people share online lead response today?”
+- **Prohibited behavior:** Do not claim small teams are automatically a fit.
+- **Exit condition:** Team coverage is clear, or insufficient volume disqualifies the workflow.
+
+### objection:contract
+- **Intent:** Prospect is constrained by an existing agreement.
+- **When to use:** They mention a contract, renewal, or commitment.
+- **Objective:** Capture the real renewal timing and covered workflow.
+- **Approved strategy:** Ask when it renews and whether it covers inbox and after-hours handoff.
+- **Good examples:**
+  - “When does that agreement renew, and does it already cover the inbox and after-hours handoff?”
+- **Prohibited behavior:** Do not urge a breach or invent a savings claim.
+- **Exit condition:** A real renewal event is captured, or coverage makes a follow-up irrelevant.
+
+### objection:previous-caller
+- **Intent:** Prospect says someone already called or they have heard this before.
+- **When to use:** They mention an earlier LotLift or vendor contact.
+- **Objective:** Avoid repeating a pitch and learn the unresolved concern.
+- **Approved strategy:** Acknowledge the prior contact and ask what remained unclear.
+- **Good examples:**
+  - “I do not want to repeat that conversation. What, if anything, was still unclear?”
+- **Prohibited behavior:** Do not claim knowledge of the earlier call or pressure a restart.
+- **Exit condition:** The unresolved concern is named, or the prospect declines.
+
+### objection:marketplace-coverage
+- **Intent:** Prospect asks whether every marketplace or source is supported.
+- **When to use:** They require coverage for every marketplace or name an unverified source.
+- **Objective:** Establish authorized, validated sources only.
+- **Approved strategy:** State that support is source-specific and ask which sources matter.
+- **Good examples:**
+  - “We only work with sources and workflows that are authorized and validated. Which sources matter most?”
+- **Prohibited behavior:** Do not promise universal marketplace support.
+- **Exit condition:** Supported sources are identified, or the requirement cannot be met.
+
+### objection:ai-automation
+- **Intent:** Prospect asks about AI or automated communication.
+- **When to use:** They ask whether LotLift uses AI or sends messages automatically.
+- **Objective:** Clarify authorized workflow and review requirements.
+- **Approved strategy:** Ask what action they would authorize and how it would be reviewed.
+- **Good examples:**
+  - “What action would you authorize, and how would you want it reviewed?”
+- **Prohibited behavior:** Do not promise autonomous behavior outside an approved workflow.
+- **Exit condition:** Authorization requirements are explicit, or the concern remains disqualifying.
+
+### objection:data-security
+- **Intent:** Prospect raises security, data, retention, or permissions concerns.
+- **When to use:** They ask about data processing, access, security, or retention.
+- **Objective:** Determine whether requirements can be met before proceeding.
+- **Approved strategy:** Acknowledge the concern and define the required security review.
+- **Good examples:**
+  - “We should determine whether permissions, retention, and security materials meet your requirements.”
+- **Prohibited behavior:** Do not make unsupported security or compliance claims.
+- **Exit condition:** A review requirement is explicit, or the requirements cannot be met.
+
+### objection:provider-authorization
+- **Intent:** A lead provider does not authorize a feed or access.
+- **When to use:** They say a provider forbids access or authorization is unavailable.
+- **Objective:** Respect provider restrictions.
+- **Approved strategy:** State that the source will not be used and identify another authorized source only if invited.
+- **Good examples:**
+  - “Then we will not use that source.”
+- **Prohibited behavior:** Do not bypass provider terms or imply unauthorized access.
+- **Exit condition:** An authorized source is identified, or the workflow is disqualified.
+
+### objection:staff-adoption
+- **Intent:** Prospect doubts staff will use a new workflow.
+- **When to use:** They cite adoption, training, or team behavior concerns.
+- **Objective:** Learn the behavior and ownership conditions needed for safe use.
+- **Approved strategy:** Ask what the team would need to do differently for the workflow to work.
+- **Good examples:**
+  - “What would the team need to do differently for that workflow to be useful?”
+- **Prohibited behavior:** Do not promise adoption or outcomes.
+- **Exit condition:** Adoption conditions are explicit, or the workflow is not viable.
+
+### objection:build-it
+- **Intent:** Prospect says they can build the workflow themselves.
+- **When to use:** They mention building internally or using their own staff.
+- **Objective:** Respect the option and understand what they need to control.
+- **Approved strategy:** Ask what they need to own or validate in the workflow.
+- **Good examples:**
+  - “That may be the right route. What do you need to control or validate in that workflow?”
+- **Prohibited behavior:** Do not dismiss internal work or claim faster results.
+- **Exit condition:** Their criteria are explicit, or they choose the internal route.
+
+### objection:comparison
+- **Intent:** Prospect is comparing alternatives.
+- **When to use:** They mention options, alternatives, or comparisons.
+- **Objective:** Learn their evaluation criteria truthfully.
+- **Approved strategy:** Ask which criteria matter and disclose limitations when relevant.
+- **Good examples:**
+  - “What criteria are you using to compare the options?”
+- **Prohibited behavior:** Do not conceal limitations or make unsupported competitor claims.
+- **Exit condition:** Criteria are captured, or their chosen option covers the need.
+
+### objection:trial
+- **Intent:** Prospect requests a free trial or pilot.
+- **When to use:** They ask for a trial, pilot, or free access.
+- **Objective:** Define a controlled scope and decision date before any evaluation.
+- **Approved strategy:** Ask what must be true after a fixed period to decide.
+- **Good examples:**
+  - “What would need to be true after 30 days for you to decide it is worth paying for?”
+- **Prohibited behavior:** Do not offer open-ended free access.
+- **Exit condition:** Controlled scope and decision date are explicit, or no evaluation proceeds.
+
+### objection:roi
+- **Intent:** Prospect requests an ROI guarantee or proof of return.
+- **When to use:** They ask for guaranteed results, ROI, or a specific return.
+- **Objective:** Set a truthful boundary and identify measurable operating outcomes.
+- **Approved strategy:** Decline to guarantee a number before workflow facts are known.
+- **Good examples:**
+  - “I cannot responsibly guarantee a number before we know your lead volume and current process.”
+- **Prohibited behavior:** Do not guarantee ROI or invent value.
+- **Exit condition:** Measurable conditions are agreed, or the guarantee requirement ends the conversation.
+
+### objection:new-company
+- **Intent:** Prospect worries that LotLift is too new.
+- **When to use:** They cite company age, maturity, or risk.
+- **Objective:** Acknowledge the limitation without pretending certainty.
+- **Approved strategy:** State that LotLift is early and offer only controlled scope when appropriate.
+- **Good examples:**
+  - “That is fair. We are early, and I will not pretend otherwise.”
+- **Prohibited behavior:** Do not fabricate proof, customers, or commitments.
+- **Exit condition:** A limited next step is accepted, or they prefer to revisit later.
+
+### objection:status-quo
+- **Intent:** Prospect prefers to leave the current process unchanged.
+- **When to use:** They say the current approach is good enough or change is unnecessary.
+- **Objective:** Verify whether coverage is genuinely complete.
+- **Approved strategy:** Ask what gives them confidence that paid inquiries are consistently covered.
+- **Good examples:**
+  - “What specifically gives you confidence that paid online inquiries do not sit unworked?”
+- **Prohibited behavior:** Do not manufacture dissatisfaction or pressure change.
+- **Exit condition:** Coverage is verified, or a concrete gap is identified.
 
 ### discovery:lead-source
 - **Intent:** Learn meaningful inbound inquiry sources.
