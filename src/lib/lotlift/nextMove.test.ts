@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
-import { selectLotLiftNextMove } from "./nextMove";
+import { lotLiftMoveCandidates, selectLotLiftNextMove } from "./nextMove";
 import type { TranscriptSegment } from "../types";
 
 const turn = (text: string, id = "turn"): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 100 });
@@ -24,7 +24,27 @@ describe("LotLift next moves", () => {
   it("selects impact coverage for the reported lost-lead recovery wording", () => {
     const move = select(newLotLiftCallState("lost-leads"), "I mean, to be honest, what matters most is if I can recover even that small sliver of leads I've already lost.");
     expect(move).toMatchObject({ id: "impact-coverage", discovery_dimension: "ownership", source: "approved-move" });
-    expect(move.response).toBe("It sounds like delayed online inquiries are creating a real impact. When one comes in, who owns it right away, especially after hours?");
+    expect(move.response).toContain("after hours");
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+    expect(move.response).not.toMatch(/15-minute|guarantee|\$\d/i);
+  });
+
+  it("uses the configured identity as the only candidate for an explicit identity question", () => {
+    const prospect = turn("Who are you?", "identity");
+    const candidates = lotLiftMoveCandidates({ state: newLotLiftCallState("identity"), turn: prospect, conversation: [prospect], approvedRepIdentity: "Alex" });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ id: "O2", source: "approved-move" });
+    expect(candidates[0]?.response).toContain("Alex");
+    expect(candidates[0]?.response).not.toMatch(/\?|15-minute|price/i);
+  });
+
+  it("clarifies a direct price question before quoting or negotiating", () => {
+    const move = select(newLotLiftCallState("price-question"), "How much is it?");
+
+    expect(move).toMatchObject({ id: "price-isolation", tactic_id: "concern-isolation" });
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+    expect(move.response).not.toMatch(/[$€£¥]\s*\d|\b(?:quote|discount|offer|deal)\b/i);
   });
 
   it("keeps a first price concern on the value path after the prospect clarifies the uncertainty", () => {

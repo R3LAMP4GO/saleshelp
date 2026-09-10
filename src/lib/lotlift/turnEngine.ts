@@ -79,6 +79,12 @@ export function coldCallStage(conversation: readonly TranscriptSegment[]): LotLi
   return "opening";
 }
 
+export function lotLiftIdentityResponse(turn: TranscriptSegment, state: LotLiftCallState, approvedRepIdentity: string | null | undefined): string | null {
+  if (turn.source !== "them" || !turn.isFinal || !/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/i.test(turn.text)) return null;
+  const card = LOTLIFT_COLD_CALL_CARDS.find((candidate) => candidate.id === "O2")!;
+  return renderLotLiftColdCallCard(card, contextFromState(state, approvedRepIdentity));
+}
+
 export function selectLotLiftColdCallCard(turn: TranscriptSegment, state: LotLiftCallState, conversation: readonly TranscriptSegment[], approvedRepIdentity: string | null | undefined): { card: LotLiftScriptCard; intent: LotLiftColdCallIntent; stage: LotLiftColdCallStage; response: string } | null {
   if (turn.source !== "them" || !turn.isFinal) return null;
   const text = turn.text.trim();
@@ -91,7 +97,7 @@ export function selectLotLiftColdCallCard(turn: TranscriptSegment, state: LotLif
   };
   const contextualOrDefault = (id: "O1" | "O2" | "O3", intent: LotLiftColdCallIntent) => choose(id, intent) ?? choose("O0", intent);
   if (/^(?:hello|hi|hey|good (?:morning|afternoon))\b[!. ]*$/i.test(text)) return contextualOrDefault("O1", "greeting");
-  if (/\b(?:who (?:is|are) this|who's this)\b/i.test(text)) return contextualOrDefault("O2", "identity");
+  if (/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/i.test(text)) return contextualOrDefault("O2", "identity");
   if (/\b(?:what(?:['’]s| is) this about|why (?:are you|did you) call)\b/i.test(text)) return contextualOrDefault("O3", "purpose");
   if (/\bhow can I help\b/i.test(text)) return contextualOrDefault("O3", "purpose");
   if (/\b(?:yes|sure|go ahead|you have (?:30|thirty) seconds)\b/i.test(text) && stage === "opening") return contextualOrDefault("O3", "permission");

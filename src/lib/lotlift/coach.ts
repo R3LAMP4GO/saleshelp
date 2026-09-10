@@ -4,8 +4,6 @@ import { LotLiftCallStateManager, newLotLiftCallState, reduceLotLiftCallState, t
 import { lotLiftDecisionContextChange, lotLiftDecisionContextEvent } from "./decisionContext";
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "./dnc";
 import type { ApprovedLotLiftResponse } from "./objections";
-import { renderLotLiftScriptCard, selectLotLiftScriptCard } from "./scriptCards";
-import { selectLotLiftColdCallCard } from "./turnEngine";
 import { analyzeLotLiftTurn } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
@@ -20,21 +18,10 @@ function moveResponse(move: ReturnType<typeof selectLotLiftNextMove>) {
   return { id: move.id, title: move.title, consideration: move.goal, response: move.response, provenance: move.source, stage: move.stage };
 }
 
-/** Deterministic script-card and DNC path, retained for unavailable or slow local inference. */
-export function classifyLotLiftTurn(segment: TranscriptSegment, state: ReturnType<typeof newLotLiftCallState>, approvedRepIdentity: string | null | undefined, conversation: readonly TranscriptSegment[] = []): CoachEvent | null {
-  if (isDoNotContactRequest(segment.text)) return { response: DO_NOT_CONTACT_RESPONSE, state: { type: "do-not-contact", at: new Date().toISOString(), evidence: { segment_id: segment.id, text: segment.text } } };
-  const coldCard = selectLotLiftColdCallCard(segment, state, conversation, approvedRepIdentity);
-  if (coldCard) return {
-    response: { id: coldCard.card.id, title: coldCard.card.trigger, response: coldCard.response, consideration: coldCard.card.objective, rule_id: coldCard.card.playbook_rule_id },
-    state: { type: "coaching-progress", move_id: coldCard.card.id, substantive_refusal: false },
-  };
-  const card = selectLotLiftScriptCard(segment, state);
-  const response = card && renderLotLiftScriptCard(card, state, approvedRepIdentity);
-  if (!card || !response) return null;
-  return {
-    response: { id: card.id, title: card.trigger, response, consideration: card.objective, rule_id: card.playbook_rule_id },
-    state: { type: "recurring-objection", fact: { value: card.id, status: "inferred", evidence: { segment_id: segment.id, text: segment.text } } },
-  };
+/** Only DNC bypasses the candidate boundary; identity remains an eligible candidate. */
+export function classifyLotLiftTurn(segment: TranscriptSegment, ..._legacy: unknown[]): CoachEvent | null {
+  if (!isDoNotContactRequest(segment.text)) return null;
+  return { response: DO_NOT_CONTACT_RESPONSE, state: { type: "do-not-contact", at: new Date().toISOString(), evidence: { segment_id: segment.id, text: segment.text } } };
 }
 
 const defaultCallStates = new LotLiftCallStateManager();
@@ -69,7 +56,8 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     const rawSegment = speakerChanged ? latestProspectTurn(state.segments, state.selfSpeakerKey) : state.segments[state.segments.length - 1];
     if (!rawSegment || (!speakerChanged && rawSegment === previous.segments[previous.segments.length - 1]) || processed.has(rawSegment.id)) return;
     const segment = prospectTurn(rawSegment, state.selfSpeakerKey);
-    if (!segment || !state.settings.evaluations.some((evaluation) => evaluation.id.startsWith("lotlift-")) || callStates.isDoNotContact(callId)) return;
+    // A selected LotLift sales profile owns SalesPilot activation; evaluations are unrelated meeting analysis.
+    if (!segment || callStates.isDoNotContact(callId)) return;
     processed.add(segment.id);
     localSelectionAbort?.abort();
     localSelectionAbort = null;
@@ -95,7 +83,7 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
       return;
     }
-    const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation });
+    const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation, approvedRepIdentity: state.settings.userName });
     const fallbackResponse = moveResponse(fallbackMove);
     if (fallbackMove.source === "terminal-policy") {
       const events = [...decisionEvents, ...fallbackMove.state_events];
@@ -103,9 +91,9 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       display(segment, fallbackResponse, false, decisionEvidence ?? undefined);
       return;
     }
-    const initialEvents = deterministic
-      ? [...decisionEvents, deterministic.state, ...(deterministic.state.type === "coaching-progress" ? [] : [{ type: "coaching-progress" as const, move_id: deterministic.response.id, substantive_refusal: deterministic.response.id === "D1" || deterministic.response.id === "N1" }])]
-      : [...decisionEvents, ...fallbackMove.state_events];
+    // Do not record the fallback move before the selector runs: it would make this
+    // very turn look like a repeated objection. The final selected/fallback move is persisted below.
+    const initialEvents = deterministic ? [...decisionEvents, deterministic.state] : [...decisionEvents];
     if (initialEvents.length && callStates.record(callId, segment.id, initialEvents)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
     display(segment, deterministic?.response ?? fallbackResponse, false, decisionEvidence ?? undefined);
     const controller = new AbortController();
@@ -120,7 +108,8 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
         markLotLiftTurn(segment.id, "modelComplete");
         if (newestProspectSegmentId !== segment.id || localSelectionAbort !== controller || result.fallback_reason === "cancelled") return;
         if (result.source === "fallback") setLotLiftLiveStatus("Fallback used");
-        if (result.state_events.length && callStates.record(callId, `${segment.id}:model`, result.state_events)) void callStates.flush(callId).then(() => {
+        const finalEvents = result.source === "fallback" ? fallbackMove.state_events : result.state_events;
+        if (finalEvents.length && callStates.record(callId, `${segment.id}:model`, finalEvents)) void callStates.flush(callId).then(() => {
           markLotLiftTurn(segment.id, "persisted");
         });
         const deterministicResponse = deterministic?.response ?? fallbackResponse;

@@ -7,6 +7,8 @@ import { LOTLIFT_COLD_CALL_POLICIES, coldCallStage, type LotLiftApprovedCallCont
 const RECENT_WINDOW_MS = 90_000;
 const MAX_DURABLE_FACTS = 14;
 const MAX_PREVIOUS_OBJECTIONS = 4;
+const MAX_RECENT_DIALOGUE = 12;
+const MAX_PRODUCT_FACTS = 8;
 const MAX_TEXT_CHARS = 500;
 
 export type LotLiftCallStage = "discovery" | "qualification" | "objection" | "close";
@@ -15,6 +17,7 @@ export type ContextPackFact = {
   field: string;
   value: string;
   status: LotLiftFieldValue<string>["status"];
+  evidence_segment_id: string | null;
 };
 
 export type ContextPackObjection = {
@@ -36,8 +39,12 @@ export type LotLiftStakeholderContext = {
 };
 
 export type LotLiftCompositionPayload = {
-  composition_version: 1;
+  composition_version: 2;
+  /** Retained locally for validation/audit; never blindly put in the model prompt. */
   full_transcript: TranscriptSegment[];
+  latest_prospect_turn: Pick<TranscriptSegment, "id" | "text">;
+  recent_dialogue: Array<Pick<TranscriptSegment, "id" | "source" | "text">>;
+  relevant_earlier_evidence: Array<Pick<TranscriptSegment, "id" | "source" | "text">>;
   durable_facts: ContextPackFact[];
   prior_objections: ContextPackObjection[];
   stakeholder_context: LotLiftStakeholderContext;
@@ -70,7 +77,7 @@ function boundedText(text: string, limit = MAX_TEXT_CHARS): string {
 }
 
 function values(field: string, facts: readonly LotLiftFieldValue<string>[]): ContextPackFact[] {
-  return facts.flatMap((fact) => fact.value ? [{ field, value: boundedText(fact.value, 160), status: fact.status }] : []);
+  return facts.flatMap((fact) => fact.value ? [{ field, value: boundedText(fact.value, 160), status: fact.status, evidence_segment_id: fact.evidence?.segment_id ?? null }] : []);
 }
 
 export function lotLiftDurableFacts(state: LotLiftCallState): ContextPackFact[] {
@@ -86,17 +93,19 @@ function recentDialogue(conversation: readonly TranscriptSegment[], turn: Transc
   const endMs = turn.endMs;
   return conversation
     .filter((segment) => segment.isFinal && segment.endMs >= endMs - RECENT_WINDOW_MS && segment.endMs <= endMs)
+    .slice(-MAX_RECENT_DIALOGUE)
     .map(({ id, source, startMs, endMs: segmentEndMs, text }) => ({ id, source, startMs, endMs: segmentEndMs, text: boundedText(text) }));
 }
 
 export function lotLiftPriorObjections(state: LotLiftCallState, conversation: readonly TranscriptSegment[], turn: TranscriptSegment): ContextPackObjection[] {
   const finalized = conversation.filter((segment) => segment.isFinal);
   const prospects = finalized.filter((segment) => segment.source === "them" && segment.id !== turn.id);
-  const transcriptObjections = prospects.flatMap((segment) => {
-    const priorLines = prospects.filter((item) => item.endMs < segment.endMs).map((item) => item.text);
+  const priorLines: string[] = [];
+  const transcriptObjections = prospects.flatMap((segment, index) => {
     const route = retrieveApprovedLotLiftResponse(segment.text, priorLines);
+    priorLines.push(segment.text);
     if (!route) return [];
-    const nextProspect = prospects.find((item) => item.startMs > segment.endMs);
+    const nextProspect = prospects[index + 1];
     const response = finalized.find((item) => item.source === "me" && item.startMs >= segment.endMs && (!nextProspect || item.endMs <= nextProspect.startMs));
     return [{ rule_id: route.rule_id, objection: route.id, prospect_text: boundedText(segment.text), rep_response: response ? boundedText(response.text) : null, occurrences: 1, at_ms: segment.endMs }];
   });
@@ -143,13 +152,25 @@ export function buildLotLiftContextPack(
     durable_facts: lotLiftDurableFacts(state),
     recent_dialogue: recentDialogue(conversation, turn),
     previous_objections: lotLiftPriorObjections(state, conversation, turn),
-    approved_product_facts: approvedProductFacts.map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
+    approved_product_facts: approvedProductFacts.slice(0, MAX_PRODUCT_FACTS).map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
     playbook_rules: playbookRules,
   };
 }
 
 function fullTranscript(conversation: readonly TranscriptSegment[]): LotLiftCompositionPayload["full_transcript"] {
   return conversation.filter((segment) => segment.isFinal).map((segment) => ({ ...segment }));
+}
+
+/** Exact prospect evidence referenced by durable memory, plus the earlier objection turn. */
+function relevantEarlierEvidence(state: LotLiftCallState, turn: TranscriptSegment, conversation: readonly TranscriptSegment[]): LotLiftCompositionPayload["relevant_earlier_evidence"] {
+  const ids = new Set(lotLiftDurableFacts(state).map((fact) => fact.evidence_segment_id).filter((id): id is string => Boolean(id)));
+  const text = turn.text.toLowerCase();
+  if (/price|cost|budget|expensive/.test(text)) {
+    for (const fact of [...state.pain_points, ...state.decision_stakeholders, ...state.decision_blockers, state.after_hours_process, state.current_solution]) {
+      if (fact.evidence?.segment_id) ids.add(fact.evidence.segment_id);
+    }
+  }
+  return conversation.filter((segment) => segment.isFinal && segment.source === "them" && segment.id !== turn.id && ids.has(segment.id)).slice(-8).map(({ id, source, text: evidenceText }) => ({ id, source, text: boundedText(evidenceText) }));
 }
 
 function stakeholderContext(state: LotLiftCallState): LotLiftStakeholderContext {
@@ -171,15 +192,19 @@ export function buildLotLiftCompositionPayload(
   _approvedCallContext: LotLiftApprovedCallContext = { representativeName: null, firstName: null, dealership: null },
 ): LotLiftCompositionPayload {
   const route = retrieveApprovedLotLiftResponse(turn.text);
-  // Preserve every final segment for reviewer visibility. The composer detects limits and fails closed.
+  const transcript = fullTranscript(conversation);
+  const context = buildLotLiftContextPack(state, turn, transcript, ruleIds, approvedProductFacts, _approvedCallContext);
   return {
-    composition_version: 1,
-    full_transcript: fullTranscript(conversation),
+    composition_version: 2,
+    full_transcript: transcript,
+    latest_prospect_turn: { id: turn.id, text: boundedText(turn.text) },
+    recent_dialogue: context.recent_dialogue.map(({ id, source, text }) => ({ id, source, text })),
+    relevant_earlier_evidence: relevantEarlierEvidence(state, turn, transcript),
     durable_facts: lotLiftDurableFacts(state).slice(0, MAX_DURABLE_FACTS),
     prior_objections: lotLiftPriorObjections(state, conversation, turn).slice(-MAX_PREVIOUS_OBJECTIONS),
     stakeholder_context: stakeholderContext(state),
     sales_script_stage: { conversation_stage: deriveLotLiftConversationStage(state), cold_call_stage: coldCallStage(conversation) },
     approved_objection_card: route && ruleIds.includes(route.rule_id) ? { id: route.id, rule_id: route.rule_id } : null,
-    allowed_product_facts: approvedProductFacts.map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
+    allowed_product_facts: approvedProductFacts.slice(0, MAX_PRODUCT_FACTS).map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
   };
 }

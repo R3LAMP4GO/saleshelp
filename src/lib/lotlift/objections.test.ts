@@ -8,7 +8,7 @@ describe("LotLift approved objection retrieval", () => {
     expect(retrieveApprovedLotLiftResponse("This is too much money for us right now.")).toMatchObject({
       id: "price",
       rule_id: "objection:no-budget",
-      response: "“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”",
+      response: "“I hear you. Is the concern the monthly spend itself, the setup effort, another option, or whether closing the gap feels worth it?”",
     });
   });
 

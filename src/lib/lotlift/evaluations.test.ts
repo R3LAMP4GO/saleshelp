@@ -13,7 +13,7 @@ describe("LotLift playbook", () => {
   it("retrieves structured objection policy from Markdown", () => {
     expect(lotLiftPlaybookRule("objection:no-budget")).toMatchObject({
       intent: "Prospect raises price, affordability, or budget.",
-      good_examples: ["“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”"],
+      good_examples: expect.arrayContaining(["“I hear you. Is the concern the monthly spend itself, the setup effort, another option, or whether closing the gap feels worth it?”"]),
     });
   });
 

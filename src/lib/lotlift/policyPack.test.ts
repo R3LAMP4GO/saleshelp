@@ -9,7 +9,8 @@ const verified = (value: string, id = "evidence") => ({ value, status: "verified
 describe("LotLift policy pack", () => {
   it("validates every declarative tactic, rule, move, claim, and fallback", () => {
     expect(() => validateLotLiftPolicyPack()).not.toThrow();
-    expect(Object.keys(LOTLIFT_MOVE_TACTICS)).toHaveLength(16);
+    expect(Object.keys(LOTLIFT_MOVE_TACTICS)).toHaveLength(21);
+    expect(LOTLIFT_MOVE_TACTICS.O2).toBe("permission-and-route");
   });
 
   it("rejects unknown moves, rules, fallbacks, and claim classes", () => {

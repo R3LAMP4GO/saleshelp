@@ -190,7 +190,7 @@ Goal: identify the person who owns online lead response; never pitch the recepti
 
 ### Buying and close objections
 
-- **Too expensive / no budget:** “I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?” Isolate the real concern before discussing scope.
+- **Too expensive / no budget:** “I hear you. Is the concern the monthly spend itself, the setup effort, another option, or whether closing the gap feels worth it?” Isolate the real concern before discussing any price, scope, or offer.
 - **Need to think:** “What is the biggest thing you want to feel certain about before deciding?” Then ask whether anything else prevents a yes.
 - **Need owner/partner:** “What will they want to know before they’re comfortable?” Invite them to a focused decision call.
 - **Comparing competitors:** “What criteria are you using? Where do you see LotLift as stronger or weaker?” Do not conceal limitations.
@@ -227,11 +227,12 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 ### objection:no-budget
 - **Intent:** Prospect raises price, affordability, or budget.
 - **When to use:** They mention cost, no budget, or that it is too expensive.
-- **Objective:** Isolate the actual concern while giving the approved introductory price.
-- **Approved strategy:** State the approved first-50-customer price, then ask whether the concern is price, setup effort, alternatives, or unclear value.
+- **Objective:** Isolate what “expensive” means before discussing price, scope, or an offer.
+- **Approved strategy:** Acknowledge the concern, relate it to verified workflow context when relevant, then ask one diagnostic question about affordability, setup, alternatives, or value.
 - **Good examples:**
-  - “I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”
-- **Prohibited behavior:** Do not alter the approved price, promise the referral offer, guarantee ROI, or negotiate before understanding the concern.
+  - “I hear you. Is the concern the monthly spend itself, the setup effort, another option, or whether closing the gap feels worth it?”
+  - “You mentioned after-hours inquiries can sit until morning. Is the concern the spend itself, or whether fixing that gap feels worth it?”
+- **Prohibited behavior:** Do not volunteer pricing, promise an offer, guarantee ROI, negotiate, or dump product information before understanding the concern.
 - **Exit condition:** A specific concern is named, or the prospect declines to continue.
 
 ### objection:existing-crm

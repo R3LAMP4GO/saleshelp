@@ -7,10 +7,8 @@ import { type CallStateEvent, type LotLiftCallState } from "./callState";
 import { isDoNotContactRequest } from "./dnc";
 import { resolveLotLiftTurnDeadline } from "./localDeadline";
 import { log } from "../log";
-import { retrieveApprovedLotLiftResponse } from "./objections";
-import { selectLotLiftNextMove, type LotLiftNextMove } from "./nextMove";
-import { LOTLIFT_POLICY_TACTICS } from "./policyPack";
-import { selectLotLiftColdCallCard } from "./turnEngine";
+import { LOTLIFT_TACTIC_RULES } from "./policyPack";
+import { lotLiftMoveCandidates, type LotLiftNextMove } from "./nextMove";
 import {
   buildLotLiftResponseCompositionContext,
   compositionPrompt,
@@ -155,31 +153,12 @@ async function defaultModel(settings: Settings, request: { system: string; promp
   return object;
 }
 
-function identityMove(response: string): LotLiftNextMove {
-  const tactic_id = "permission-and-route" as const;
-  return {
-    id: "O2",
-    title: "Who is this?",
-    goal: "Identify the caller truthfully and wait for the prospect's next turn.",
-    response,
-    stage: "owner-identification",
-    source: "approved-move",
-    tactic_id,
-    allowed_claim_classes: LOTLIFT_POLICY_TACTICS[tactic_id].allowed_claim_classes,
-    candidate_reason: "approved O2 identity card before owner discovery",
-    state_events: [{ type: "coaching-progress", move_id: "O2", substantive_refusal: false }],
-  };
-}
-
-function approvedFallbackMove(move: LotLiftNextMove, option: ReturnType<typeof buildLotLiftResponseCompositionContext>["deterministic_option"]): LotLiftNextMove {
-  return option ? { ...move, id: option.id, title: option.title, goal: option.goal, response: option.response, stage: option.stage, candidate_reason: option.candidate_reason, source: option.source, tactic_id: option.tactic_id, allowed_claim_classes: option.allowed_claim_classes } : move;
-}
-
 /** Produces guarded spoken copy or falls back to the locally approved response verbatim. */
 export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: TranscriptSegment; conversation?: readonly TranscriptSegment[]; recent?: readonly TranscriptSegment[]; relevantRuleIds?: readonly LotLiftPlaybookRuleId[]; approvedProductFacts?: readonly import("./contextPack").LotLiftApprovedProductFact[]; settings?: Settings; model?: LotLiftTurnModel; timeoutMs?: number; signal?: AbortSignal }): Promise<LotLiftTurnIntelligence> {
   const { state, turn, settings, model, signal } = opts;
   const conversation = (opts.conversation ?? opts.recent ?? [turn]).filter((segment) => segment.isFinal);
-  const deterministicMove = selectLotLiftNextMove({ state, turn, conversation });
+  const candidates = lotLiftMoveCandidates({ state, turn, conversation, approvedRepIdentity: settings?.userName });
+  const deterministicMove = candidates[0]!;
   const suppliedRuleIds = opts.relevantRuleIds ?? [];
 
   if (!turn.isFinal || turn.source !== "them" || !turn.text.trim()) return result(deterministicMove, [], "fallback", suppliedRuleIds, "invalid-output");
@@ -191,24 +170,13 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   if (email) return { event_type: "discovery", confidence: 1, needs_coaching: false, playbook_rule_ids: [], state_events: [email], selected_move: null, move_id: null, source: "hard-rule" };
   if (deterministicMove.source === "terminal-policy") return result(deterministicMove, deterministicMove.state_events, "hard-rule", suppliedRuleIds);
 
-  const coldCard = selectLotLiftColdCallCard(turn, state, conversation, settings?.userName);
-  const coldMove = coldCard?.card.id === "O2" ? identityMove(coldCard.response) : null;
-  const selectedMove = coldMove ?? deterministicMove;
-  const approvedCard = coldMove ? null : retrieveApprovedLotLiftResponse(turn.text, conversation.filter((segment) => segment.source === "them").map((segment) => segment.text));
-  const ruleIds = coldMove ? [coldCard!.card.playbook_rule_id] : approvedCard ? [approvedCard.rule_id] : suppliedRuleIds;
+  const eligibleCandidates = candidates;
+  const fallbackMove = eligibleCandidates[0]!;
+  const ruleIds = [...new Set([...suppliedRuleIds, ...eligibleCandidates.flatMap((candidate) => LOTLIFT_TACTIC_RULES[candidate.tactic_id])])].slice(0, 3) as LotLiftPlaybookRuleId[];
   const context = buildLotLiftResponseCompositionContext({
-    state,
-    turn,
-    conversation,
-    deterministicMove: selectedMove,
-    responsePolicy: "composable",
-    ruleIds,
-    approvedProductFacts: opts.approvedProductFacts,
-    approvedCard,
-    settings,
+    state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
+    approvedProductFacts: opts.approvedProductFacts, settings,
   });
-  const fallbackMove = approvedFallbackMove(selectedMove, context.deterministic_option);
-  if (context.transcript_limit_exceeded) return result(fallbackMove, [], "fallback", ruleIds, "transcript-limit-exceeded");
   if (!model && !settings) return result(fallbackMove, [], "fallback", ruleIds, "unconfigured");
   if (signal?.aborted) return result(fallbackMove, [], "fallback", ruleIds, "cancelled");
 
@@ -248,7 +216,8 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     }
     const validated = validation.result;
     logLotLiftComposerDiagnostic({ event: "complete", elapsed_ms: Math.round(performance.now() - startedAt), parsed_output_valid: true, validator_rejection_code: null, validator_rejection_subreason: null, ...diagnosticBase });
-    return { ...result(fallbackMove, validated.state_events, "model", ruleIds), spoken_response: validated.spoken_response ?? undefined };
+    const selectedMove = eligibleCandidates.find((candidate) => candidate.id === validated.selected_option.id) ?? fallbackMove;
+    return { ...result(selectedMove, validated.state_events, "model", ruleIds), spoken_response: validated.spoken_response ?? undefined };
   } catch (error) {
     const fallbackReason = deadlineExpired ? "timeout" : signal?.aborted ? "cancelled" : "model-error";
     const modelErrorCode = error instanceof z.ZodError

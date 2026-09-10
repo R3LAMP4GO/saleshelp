@@ -47,7 +47,7 @@ describe("LotLift ContextPack", () => {
     expect(pack.playbook_rules.map((rule) => rule.id)).toEqual(["objection:existing-crm", "qualification:pain", "qualification:authority"]);
   });
 
-  it("preserves the complete role-aware transcript and stakeholder evidence for composition", () => {
+  it("keeps the complete role-aware transcript local while bounding prompt retrieval", () => {
     const state = newLotLiftCallState("composition");
     state.workflow_owner = verified("internet manager", "owner");
     state.authority = verified("general manager", "authority");
@@ -59,7 +59,7 @@ describe("LotLift ContextPack", () => {
     ];
     const payload = buildLotLiftCompositionPayload(state, conversation[2]!, conversation, []);
     expect(payload).toMatchObject({
-      composition_version: 1,
+      composition_version: 2,
       full_transcript: conversation,
       stakeholder_context: {
         owner: [expect.objectContaining({ value: "internet manager", status: "verified" })],
@@ -67,5 +67,15 @@ describe("LotLift ContextPack", () => {
         decision_stakeholders: [expect.objectContaining({ value: "wife", status: "verified" })],
       },
     });
+  });
+
+  it("caps recent dialogue while retaining the latest prospect turn", () => {
+    const conversation = Array.from({ length: 21 }, (_, index) => segment(`turn-${index}`, index % 2 ? "me" : "them", `Turn ${index}`, 100_000 + index * 1_000));
+    const current = conversation[conversation.length - 1]!;
+    const pack = buildLotLiftContextPack(newLotLiftCallState("bounded"), current, conversation, []);
+
+    expect(pack.recent_dialogue).toHaveLength(12);
+    expect(pack.recent_dialogue[pack.recent_dialogue.length - 1]?.id).toBe(current.id);
+    expect(pack.recent_dialogue.map((item) => item.id)).not.toContain("turn-0");
   });
 });

@@ -97,15 +97,15 @@ export const LOTLIFT_TACTIC_RULES: Record<LotLiftPolicyTacticId, readonly LotLif
 };
 
 export const LOTLIFT_APPROVED_MOVE_IDS = [
-  "terminal-close", "disqualified-close", "abuse-close", "hard-integration-close", "unsupported-fit-close", "second-no-close",
-  "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "impact-coverage", "identify-owner", "lead-source",
+  "terminal-close", "disqualified-close", "abuse-close", "hard-integration-close", "unsupported-fit-close", "second-no-close", "O2",
+  "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "price-pain-value", "price-stakeholder-criteria", "price-next-criterion", "crm-coverage", "impact-coverage", "identify-owner", "lead-source",
   "gap-after-hours", "gap-visibility", "confirm-authority", "workflow-check",
 ] as const;
 export type LotLiftApprovedMoveId = typeof LOTLIFT_APPROVED_MOVE_IDS[number];
 
 export const LOTLIFT_MOVE_TACTICS: Record<LotLiftApprovedMoveId, LotLiftPolicyTacticId> = {
-  "terminal-close": "respectful-exit", "disqualified-close": "respectful-exit", "abuse-close": "respectful-exit", "hard-integration-close": "truthful-limitation", "unsupported-fit-close": "truthful-limitation", "second-no-close": "respectful-exit",
-  "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
+  "terminal-close": "respectful-exit", "disqualified-close": "respectful-exit", "abuse-close": "respectful-exit", "hard-integration-close": "truthful-limitation", "unsupported-fit-close": "truthful-limitation", "second-no-close": "respectful-exit", "O2": "permission-and-route",
+  "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "price-pain-value": "concern-isolation", "price-stakeholder-criteria": "decision-criteria", "price-next-criterion": "concern-isolation", "crm-coverage": "solution-verification", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
   "gap-after-hours": "workflow-discovery", "gap-visibility": "workflow-discovery", "confirm-authority": "solution-verification", "workflow-check": "scoped-next-step",
 };
 

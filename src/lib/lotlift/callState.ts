@@ -51,7 +51,9 @@ export type LotLiftListField =
   | "prior_answers"
   | "buying_signals"
   | "commitments"
-  | "open_questions";
+  | "open_questions"
+  | "decision_blockers"
+  | "decision_stakeholders";
 
 export type LotLiftConversationStage =
   | "owner-identification"
@@ -171,7 +173,7 @@ const scalarFields: readonly LotLiftScalarField[] = [
 ];
 
 const listFields: readonly LotLiftListField[] = [
-  "lead_sources", "pain_points", "quantified_pain", "stakeholders", "prior_answers", "buying_signals", "commitments", "open_questions",
+  "lead_sources", "pain_points", "quantified_pain", "stakeholders", "prior_answers", "buying_signals", "commitments", "open_questions", "decision_blockers", "decision_stakeholders",
 ];
 
 function mergeLotLiftField<T>(existing: LotLiftFieldValue<T>, incoming: LotLiftFieldValue<T>): LotLiftFieldValue<T> {
