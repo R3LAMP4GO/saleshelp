@@ -15,6 +15,7 @@ import { signInWithGoogle, signOut, CloudError } from "../lib/cloud/client";
 import { CLOUD_ENABLED } from "../lib/flags";
 import { Flag } from "../components/ui/flag";
 import { LOTLIFT_OLLAMA_SETUP, lotLiftLocalPreset } from "../lib/lotlift/preset";
+import { LOTLIFT_LOCAL_MODEL_DEADLINE_MAX_MS, LOTLIFT_LOCAL_MODEL_DEADLINE_MIN_MS } from "../lib/lotlift/localDeadline";
 import {
   createOrg,
   listMyOrgs,
@@ -746,7 +747,7 @@ export function SettingsApp() {
                 />
               </Field>
             )}
-            <div className="max-w-md space-y-2 rounded-md border p-3 text-xs"><p className="font-medium">LotLift Local readiness</p><p>{["qwen3:4b", "qwen3:8b"].every((model) => ollamaModels.includes(model)) ? "Ollama models ready." : `Missing models: ${LOTLIFT_OLLAMA_SETUP.join(" · ")}`}</p><p>{parakeetHealth?.status === "ready" ? "Local Parakeet ready." : parakeetHealth ? `Local Parakeet: ${parakeetHealth.detail}` : "Local Parakeet will be checked after applying the preset."}</p><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => updateSettings(lotLiftLocalPreset(settings))}>Apply LotLift Local preset</Button>{settings.transcriptionProvider === "mlx-parakeet" && <Button size="sm" variant="outline" disabled={!parakeetHealth || parakeetChanging || parakeetHealth.status === "not_installed"} onClick={() => void toggleParakeet()}>{parakeetChanging ? "Updating…" : ["ready", "starting"].includes(parakeetHealth?.status ?? "") ? "Turn off Parakeet" : "Turn on Parakeet"}</Button>}</div></div>
+            <div className="max-w-md space-y-2 rounded-md border p-3 text-xs"><p className="font-medium">LotLift Local readiness</p><p>{["qwen3:4b", "qwen3:8b"].every((model) => ollamaModels.includes(model)) ? "Ollama models ready." : `Missing models: ${LOTLIFT_OLLAMA_SETUP.join(" · ")}`}</p><p>{parakeetHealth?.status === "ready" ? "Local Parakeet ready." : parakeetHealth ? `Local Parakeet: ${parakeetHealth.detail}` : "Local Parakeet will be checked after applying the preset."}</p><Field label="Local AI refinement deadline"><Input className="max-w-32" type="number" min={LOTLIFT_LOCAL_MODEL_DEADLINE_MIN_MS} max={LOTLIFT_LOCAL_MODEL_DEADLINE_MAX_MS} step={500} value={settings.lotLiftLocalModelDeadlineMs} onChange={(event) => updateSettings({ lotLiftLocalModelDeadlineMs: Number(event.target.value) })} /><p className="mt-1 text-muted-foreground">Milliseconds. The approved response appears immediately while local AI refines it.</p></Field><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => updateSettings(lotLiftLocalPreset(settings))}>Apply LotLift Local preset</Button>{settings.transcriptionProvider === "mlx-parakeet" && <Button size="sm" variant="outline" disabled={!parakeetHealth || parakeetChanging || parakeetHealth.status === "not_installed"} onClick={() => void toggleParakeet()}>{parakeetChanging ? "Updating…" : ["ready", "starting"].includes(parakeetHealth?.status ?? "") ? "Turn off Parakeet" : "Turn on Parakeet"}</Button>}</div></div>
             {!sttInfo.diarization && (
               <p className="max-w-md rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
                 {t("settings.transcription.noDiarizationWarning")}

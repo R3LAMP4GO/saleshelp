@@ -8,7 +8,7 @@ import { validateCustomSalesProfile } from "./customProfiles";
 const profile = validateCustomSalesProfile({ id: "89e711c1-e6e5-4c96-a136-cc96e162bc3c", businessName: "Acme", modeName: "Demo", sourceName: "playbook.md", playbookText: "# Acme\n\n## Call objective\nBook a product demo.\n\n## Script stages\n### stage:opening\nOpen the conversation.\n### stage:discovery\nLearn the workflow.\n### stage:close\nBook the demo.\n\n## Objection rules\n### rule:not-interested\nClarify the concern.\n\n## Product facts\n### product:lead-routing\n**Statement:** Acme routes approved leads to assigned owners.\n**Category:** capability", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" });
 
 let cleanup: (() => void) | undefined;
-afterEach(() => { cleanup?.(); cleanup = undefined; useStore.setState({ meetingStatus: "idle", meetingId: null, salesMetadata: null, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null }); });
+afterEach(() => { cleanup?.(); cleanup = undefined; useStore.setState({ meetingStatus: "idle", meetingId: null, salesMetadata: null, selfSpeakerKey: null, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null }); });
 
 it("coaches a compiled custom profile once and exposes its stage", async () => {
   const state = useStore.getState();
@@ -27,6 +27,20 @@ it("coaches the built-in LotLift profile", async () => {
   useStore.setState({ segments: [{ id: "lotlift-turn", source: "them", speaker: 0, text: "Tell me more.", isFinal: true, startMs: 0, endMs: 10 }] });
   await Promise.resolve();
   expect(useStore.getState().findings).toMatchObject([{ id: "sales-pilot-lotlift-turn", title: "LotLift sales playbook" }]);
+});
+
+it("excludes the selected speaker and coaches another finalized diarized turn", async () => {
+  let calls = 0;
+  useStore.setState({ meetingStatus: "recording", meetingId: "diarized", salesMetadata: customSalesMeetingMetadata(profile, {}, "2026-01-01T00:00:00.000Z"), selfSpeakerKey: "mix-1", segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
+  cleanup = initSalesPilotCoach(async () => {
+    calls += 1;
+    return { needs_coaching: true, say: "Acme routes approved leads to assigned owners.", current_stage: "opening", next_stage: "discovery", customer_evidence: [], product_claims: [{ sentence: "Acme routes approved leads to assigned owners.", product_fact_id: "lead-routing" }], source: "model" };
+  });
+  useStore.setState({ segments: [{ id: "self", source: "mix", speaker: 1, text: "Let me explain.", isFinal: true, startMs: 0, endMs: 10 }] });
+  useStore.setState({ segments: [...useStore.getState().segments, { id: "prospect", source: "mix", speaker: 2, text: "Tell me more.", isFinal: true, startMs: 11, endMs: 20 }] });
+  await Promise.resolve();
+  expect(calls).toBe(1);
+  expect(useStore.getState().findings).toMatchObject([{ id: "sales-pilot-prospect" }]);
 });
 
 it("only progresses through ordered stages", async () => {

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { log } from "../log";
 
-export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 4;
+export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 6;
 
 export interface LotLiftEvidence {
   segment_id: string;
@@ -40,7 +40,8 @@ export type LotLiftScalarField =
   | "fit_status"
   | "disqualification_reason"
   | "next_action"
-  | "next_action_at";
+  | "next_action_at"
+  | "selected_objection_route";
 
 export type LotLiftListField =
   | "lead_sources"
@@ -51,6 +52,17 @@ export type LotLiftListField =
   | "buying_signals"
   | "commitments"
   | "open_questions";
+
+export type LotLiftConversationStage =
+  | "owner-identification"
+  | "relevance-discovery"
+  | "gap-confirmation"
+  | "qualification"
+  | "meeting-invitation"
+  | "terminal"
+  | "disqualified";
+
+export type LotLiftDiscoveryDimension = "lead-source" | "ownership" | "after-hours" | "visibility" | "pain" | "authority" | "urgency";
 
 export interface LotLiftCallState {
   schema_version: number;
@@ -89,6 +101,12 @@ export interface LotLiftCallState {
   dnc_evidence: LotLiftEvidence | null;
   next_action: LotLiftFieldValue<string>;
   next_action_at: LotLiftFieldValue<string>;
+  /** Deterministic route signal; never model-authored. */
+  selected_objection_route: LotLiftFieldValue<string>;
+  /** Deterministic coach metadata; never model-authored. */
+  last_discovery_dimension: LotLiftDiscoveryDimension | null;
+  last_move_id: string | null;
+  substantive_refusal_count: number;
 }
 
 export const unknownLotLiftField = <T>(): LotLiftFieldValue<T> => ({ value: null, status: "unknown", evidence: null });
@@ -131,6 +149,10 @@ export function newLotLiftCallState(callId: string): LotLiftCallState {
     dnc_evidence: null,
     next_action: unknownLotLiftField(),
     next_action_at: unknownLotLiftField(),
+    selected_objection_route: unknownLotLiftField(),
+    last_discovery_dimension: null,
+    last_move_id: null,
+    substantive_refusal_count: 0,
   };
 }
 
@@ -138,13 +160,14 @@ export type CallStateEvent =
   | { type: "capture"; field: LotLiftScalarField; fact: LotLiftFieldValue<string> }
   | { type: "append"; field: LotLiftListField; fact: LotLiftFieldValue<string> }
   | { type: "recurring-objection"; fact: LotLiftFieldValue<string> }
-  | { type: "decision-context"; readiness?: LotLiftFieldValue<string>; blockers: LotLiftFieldValue<string>[]; stakeholders: LotLiftFieldValue<string>[] }
+  | { type: "decision-context"; readiness?: LotLiftFieldValue<string>; blockers: LotLiftFieldValue<string>[]; stakeholders: LotLiftFieldValue<string>[]; selected_objection_route?: LotLiftFieldValue<string> }
+  | { type: "coaching-progress"; move_id: string; discovery_dimension?: LotLiftDiscoveryDimension; substantive_refusal?: boolean }
   | { type: "do-not-contact"; at: string; evidence: LotLiftEvidence };
 
 const scalarFields: readonly LotLiftScalarField[] = [
   "dealership", "contact_name", "role", "phone", "email", "current_solution", "lead_arrival_point",
   "workflow_owner", "after_hours_process", "visibility_process", "authority", "urgency", "renewal_date",
-  "close_opportunity", "fit_status", "disqualification_reason", "next_action", "next_action_at",
+  "close_opportunity", "fit_status", "disqualification_reason", "next_action", "next_action_at", "selected_objection_route",
 ];
 
 const listFields: readonly LotLiftListField[] = [
@@ -201,6 +224,22 @@ export function applyLotLiftAiStatePatch(state: LotLiftCallState, patch: Partial
   return next;
 }
 
+/** Derives the bounded policy stage from terminal state and verified prospect evidence only. */
+export function deriveLotLiftConversationStage(state: LotLiftCallState): LotLiftConversationStage {
+  const verified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
+  const anyVerified = (facts: readonly LotLiftFieldValue<string>[]) => facts.some(verified);
+  if (state.do_not_contact || state.substantive_refusal_count >= 2) return "terminal";
+  if (verified(state.disqualification_reason) || (verified(state.fit_status) && /disqualif|unsupported|not a fit/i.test(state.fit_status.value ?? ""))) return "disqualified";
+  const ownerKnown = verified(state.role) || verified(state.workflow_owner) || anyVerified(state.stakeholders);
+  if (!ownerKnown) return "owner-identification";
+  const relevantWorkflow = anyVerified(state.lead_sources) || verified(state.lead_arrival_point) || verified(state.current_solution);
+  if (!relevantWorkflow) return "relevance-discovery";
+  const confirmedGap = anyVerified(state.pain_points) || anyVerified(state.quantified_pain);
+  if (!confirmedGap) return "gap-confirmation";
+  if (!verified(state.authority)) return "qualification";
+  return "meeting-invitation";
+}
+
 /** Deterministic reducer: verified prospect facts resist later inferred replacements. */
 export function reduceLotLiftCallState(state: LotLiftCallState, event: CallStateEvent): LotLiftCallState {
   switch (event.type) {
@@ -209,6 +248,12 @@ export function reduceLotLiftCallState(state: LotLiftCallState, event: CallState
       : { ...state, do_not_contact: true, dnc_at: event.at, dnc_evidence: event.evidence };
     case "capture": return { ...state, [event.field]: mergeLotLiftField(state[event.field], event.fact) };
     case "append": return { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
+    case "coaching-progress": return {
+      ...state,
+      last_move_id: event.move_id,
+      last_discovery_dimension: event.discovery_dimension ?? state.last_discovery_dimension,
+      substantive_refusal_count: event.substantive_refusal ? Math.min(2, state.substantive_refusal_count + 1) : state.substantive_refusal_count,
+    };
     case "decision-context": {
       const explicit = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && !!fact.value && !!fact.evidence;
       return {
@@ -216,6 +261,9 @@ export function reduceLotLiftCallState(state: LotLiftCallState, event: CallState
         stated_readiness: event.readiness && explicit(event.readiness) ? mergeLotLiftField(state.stated_readiness, event.readiness) : state.stated_readiness,
         decision_blockers: mergeLotLiftFieldList(state.decision_blockers, event.blockers.filter(explicit)),
         decision_stakeholders: mergeLotLiftFieldList(state.decision_stakeholders, event.stakeholders.filter(explicit)),
+        selected_objection_route: event.selected_objection_route && explicit(event.selected_objection_route)
+          ? mergeLotLiftField(state.selected_objection_route, event.selected_objection_route)
+          : state.selected_objection_route,
       };
     }
     case "recurring-objection": {
@@ -283,7 +331,8 @@ export class LotLiftCallStateManager {
     call.ready = this.storage.load(callId).then((saved) => {
       if (!saved) return;
       hasSavedState = true;
-      call.state = saved;
+      // Older persisted calls did not have coach-progress fields; preserve facts while migrating in memory.
+      call.state = { ...newLotLiftCallState(callId), ...saved, schema_version: LOTLIFT_CALL_STATE_SCHEMA_VERSION };
       if (saved.do_not_contact) this.doNotContactCallIds.add(callId);
     }).catch((error) => {
       this.onPersistFailure("LotLift Call State load failed", error, callId);

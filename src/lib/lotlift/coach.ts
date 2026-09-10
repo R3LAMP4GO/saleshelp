@@ -5,17 +5,29 @@ import { lotLiftDecisionContextChange, lotLiftDecisionContextEvent } from "./dec
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "./dnc";
 import type { ApprovedLotLiftResponse } from "./objections";
 import { renderLotLiftScriptCard, selectLotLiftScriptCard } from "./scriptCards";
+import { selectLotLiftColdCallCard } from "./turnEngine";
 import { analyzeLotLiftTurn } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
 import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
 import { salesRecommendationMetadata } from "../sales/meeting";
+import { latestProspectTurn, prospectTurn, roleAwareConversation } from "../sales/speakerRoles";
+import { selectLotLiftNextMove } from "./nextMove";
 
-type CoachEvent = { response: ApprovedLotLiftResponse; state: CallStateEvent };
+type CoachEvent = { response: Omit<ApprovedLotLiftResponse, "tactic_id">; state: CallStateEvent };
+
+function moveResponse(move: ReturnType<typeof selectLotLiftNextMove>) {
+  return { id: move.id, title: move.title, consideration: move.goal, response: move.response, provenance: move.source, stage: move.stage };
+}
 
 /** Deterministic script-card and DNC path, retained for unavailable or slow local inference. */
-export function classifyLotLiftTurn(segment: TranscriptSegment, state: ReturnType<typeof newLotLiftCallState>, approvedRepIdentity: string | null | undefined): CoachEvent | null {
+export function classifyLotLiftTurn(segment: TranscriptSegment, state: ReturnType<typeof newLotLiftCallState>, approvedRepIdentity: string | null | undefined, conversation: readonly TranscriptSegment[] = []): CoachEvent | null {
   if (isDoNotContactRequest(segment.text)) return { response: DO_NOT_CONTACT_RESPONSE, state: { type: "do-not-contact", at: new Date().toISOString(), evidence: { segment_id: segment.id, text: segment.text } } };
+  const coldCard = selectLotLiftColdCallCard(segment, state, conversation, approvedRepIdentity);
+  if (coldCard) return {
+    response: { id: coldCard.card.id, title: coldCard.card.trigger, response: coldCard.response, consideration: coldCard.card.objective, rule_id: coldCard.card.playbook_rule_id },
+    state: { type: "coaching-progress", move_id: coldCard.card.id, substantive_refusal: false },
+  };
   const card = selectLotLiftScriptCard(segment, state);
   const response = card && renderLotLiftScriptCard(card, state, approvedRepIdentity);
   if (!card || !response) return null;
@@ -27,11 +39,11 @@ export function classifyLotLiftTurn(segment: TranscriptSegment, state: ReturnTyp
 
 const defaultCallStates = new LotLiftCallStateManager();
 
-function display(segment: TranscriptSegment, response: { id: string; title: string; consideration: string; response: string }, critical = false, decisionEvidence?: LotLiftFieldValue<string>): void {
+function display(segment: TranscriptSegment, response: { id: string; title: string; consideration: string; response: string; provenance?: string; stage?: string }, critical = false, decisionEvidence?: LotLiftFieldValue<string>): void {
   const store = useStore.getState();
-  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", salesMetadata: store.salesMetadata ? salesRecommendationMetadata(store.salesMetadata) : undefined };
-  if (store.findings.some((item) => item.id === finding.id)) return;
-  store.addFinding(finding);
+  const provenance = response.provenance ?? "approved-script";
+  const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", lotLiftRecommendation: { moveId: response.id, source: provenance, stage: response.stage ?? "unknown" }, salesMetadata: store.salesMetadata ? salesRecommendationMetadata(store.salesMetadata) : undefined };
+  if (!store.findings.some((item) => item.id === finding.id)) store.addFinding(finding);
   store.setFindingSolution(finding.id, { status: "done", error: null, solution: { findingId: finding.id, replies: [{ kind: "reframe", reply: response.response, consideration: response.consideration }] } });
   store.setSolutionFinding(finding.id);
   markLotLiftTurn(segment.id, "visible");
@@ -42,31 +54,39 @@ function display(segment: TranscriptSegment, response: { id: string; title: stri
 export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = analyzeLotLiftTurn, salesProfileId?: string): () => void {
   let activeCallId: string | null = null;
   let newestProspectSegmentId: string | null = null;
+  let localSelectionAbort: AbortController | null = null;
   const processed = new Set<string>();
   const unsubscribe = useStore.subscribe((state, previous) => {
     const meetingActive = state.meetingStatus === "recording" || state.meetingStatus === "paused";
     const selectedProfile = !salesProfileId || state.salesMetadata?.salesProfileId === salesProfileId;
     // Legacy callers retain their historic LotLift key; profile-selected calls use the UUID unchanged.
     const callId = meetingActive && state.meetingId && selectedProfile ? salesProfileId ? state.meetingId : `lotlift-${state.meetingId}` : null;
-    if (activeCallId && activeCallId !== callId) { void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; processed.clear(); }
+    if (activeCallId && activeCallId !== callId) { localSelectionAbort?.abort(); localSelectionAbort = null; void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; processed.clear(); }
     if (!callId) return;
     activeCallId = callId;
     callStates.activate(callId);
-    const segment = state.segments[state.segments.length - 1];
-    if (!segment || segment === previous.segments[previous.segments.length - 1] || !segment.isFinal || segment.source !== "them" || processed.has(segment.id)) return;
-    if (!state.settings.evaluations.some((evaluation) => evaluation.id.startsWith("lotlift-")) || callStates.isDoNotContact(callId)) return;
+    const speakerChanged = state.selfSpeakerKey !== previous.selfSpeakerKey;
+    const rawSegment = speakerChanged ? latestProspectTurn(state.segments, state.selfSpeakerKey) : state.segments[state.segments.length - 1];
+    if (!rawSegment || (!speakerChanged && rawSegment === previous.segments[previous.segments.length - 1]) || processed.has(rawSegment.id)) return;
+    const segment = prospectTurn(rawSegment, state.selfSpeakerKey);
+    if (!segment || !state.settings.evaluations.some((evaluation) => evaluation.id.startsWith("lotlift-")) || callStates.isDoNotContact(callId)) return;
     processed.add(segment.id);
+    localSelectionAbort?.abort();
+    localSelectionAbort = null;
     startLotLiftTurn(segment.id);
     setLotLiftLiveStatus("Thinking");
     newestProspectSegmentId = segment.id;
-    const conversation = state.segments.filter((item) => item.isFinal);
-    const newProspectSegments = state.segments.filter((item) => item.source === "them" && item.isFinal && !previous.segments.some((previousItem) => previousItem.id === item.id));
+    const conversation = roleAwareConversation(state.segments, state.selfSpeakerKey);
+    const newProspectSegments = (speakerChanged ? state.segments : state.segments
+      .filter((item) => !previous.segments.some((previousItem) => previousItem.id === item.id)))
+      .map((item) => prospectTurn(item, state.selfSpeakerKey))
+      .filter((item): item is TranscriptSegment => item !== null);
     const decisionEvents = newProspectSegments.map(lotLiftDecisionContextEvent).filter((event): event is CallStateEvent => event !== null);
     const currentDecisionEvent = lotLiftDecisionContextEvent(segment);
     const decisionState = decisionEvents.reduce(reduceLotLiftCallState, callStates.stateFor(callId) ?? newLotLiftCallState(callId));
     const decisionEvidence = lotLiftDecisionContextChange(decisionState, currentDecisionEvent);
     const hardRuleStartedAt = performance.now();
-    const deterministic = classifyLotLiftTurn(segment, decisionState, state.settings.userName);
+    const deterministic = classifyLotLiftTurn(segment, decisionState, state.settings.userName, conversation);
     measureLotLiftHardRule(segment.id, hardRuleStartedAt);
     markLotLiftTurn(segment.id, "playbook");
     if (deterministic?.response.id === "do-not-call") {
@@ -75,40 +95,53 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
       return;
     }
-    if (state.settings.llmProviders.realtime !== "ollama") {
-      const events = deterministic ? [...decisionEvents, deterministic.state] : decisionEvents;
-      if (events.length && callStates.record(callId, segment.id, events)) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); if (deterministic) display(segment, deterministic.response, false, decisionEvidence ?? undefined); }
+    const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation });
+    const fallbackResponse = moveResponse(fallbackMove);
+    if (fallbackMove.source === "terminal-policy") {
+      const events = [...decisionEvents, ...fallbackMove.state_events];
+      if (events.length && callStates.record(callId, segment.id, events)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
+      display(segment, fallbackResponse, false, decisionEvidence ?? undefined);
       return;
     }
+    const initialEvents = deterministic
+      ? [...decisionEvents, deterministic.state, ...(deterministic.state.type === "coaching-progress" ? [] : [{ type: "coaching-progress" as const, move_id: deterministic.response.id, substantive_refusal: deterministic.response.id === "D1" || deterministic.response.id === "N1" }])]
+      : [...decisionEvents, ...fallbackMove.state_events];
+    if (initialEvents.length && callStates.record(callId, segment.id, initialEvents)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
+    display(segment, deterministic?.response ?? fallbackResponse, false, decisionEvidence ?? undefined);
+    const controller = new AbortController();
+    localSelectionAbort = controller;
     void (async () => {
       await callStates.flush(callId);
       if (newestProspectSegmentId !== segment.id) return;
       try {
         markLotLiftTurn(segment.id, "modelStart");
-        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, conversation, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings });
+        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, conversation, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings, signal: controller.signal });
         markLotLiftTurn(segment.id, "modelFirstResponse");
         markLotLiftTurn(segment.id, "modelComplete");
-        if (newestProspectSegmentId !== segment.id) return;
-        if (result.source === "fallback" && deterministic) {
-          setLotLiftLiveStatus("Fallback used");
-          if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) display(segment, deterministic.response, false, decisionEvidence ?? undefined);
-          return;
-        }
-        const events = [...decisionEvents, ...result.state_events];
-        if (events.length && callStates.record(callId, segment.id, events)) void callStates.flush(callId).then(() => {
+        if (newestProspectSegmentId !== segment.id || localSelectionAbort !== controller || result.fallback_reason === "cancelled") return;
+        if (result.source === "fallback") setLotLiftLiveStatus("Fallback used");
+        if (result.state_events.length && callStates.record(callId, `${segment.id}:model`, result.state_events)) void callStates.flush(callId).then(() => {
           markLotLiftTurn(segment.id, "persisted");
         });
-        if (!result.needs_coaching) { setLotLiftLiveStatus("No intervention needed"); return; }
-        const contextualQuestion = result.source === "model" && result.say?.trim().endsWith("?")
-          ? { id: "contextual-question", title: "Discovery question", consideration: result.goal ?? "Clarify the prospect's context.", response: result.say }
-          : deterministic?.response;
-        if (!contextualQuestion) { setLotLiftLiveStatus("No intervention needed"); return; }
-        display(segment, contextualQuestion, false, decisionEvidence ?? undefined);
+        const deterministicResponse = deterministic?.response ?? fallbackResponse;
+        const contextualResponse = result.source === "model" && result.selected_move && result.spoken_response
+          ? { ...moveResponse(result.selected_move), response: result.spoken_response, provenance: "model-composed" }
+          : result.source === "fallback" && result.selected_move
+            ? { ...moveResponse(result.selected_move), provenance: "safe-fallback" }
+            : deterministicResponse;
+        display(segment, contextualResponse, false, decisionEvidence ?? undefined);
       } catch {
+        if (controller.signal.aborted || newestProspectSegmentId !== segment.id || localSelectionAbort !== controller) return;
         setLotLiftLiveStatus("Local model unavailable");
-        if (newestProspectSegmentId === segment.id && deterministic && callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, false, decisionEvidence ?? undefined); }
+        display(segment, { ...(deterministic?.response ?? fallbackResponse), provenance: "safe-fallback" }, false, decisionEvidence ?? undefined);
+      } finally {
+        if (localSelectionAbort === controller) localSelectionAbort = null;
       }
     })();
   });
-  return unsubscribe;
+  return () => {
+    localSelectionAbort?.abort();
+    localSelectionAbort = null;
+    unsubscribe();
+  };
 }

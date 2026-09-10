@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "./dnc";
-import { retrieveApprovedLotLiftResponse } from "./objections";
+import { LOTLIFT_OBJECTION_TACTICS, retrieveApprovedLotLiftResponse } from "./objections";
 import { parseLotLiftPlaybook } from "./playbook";
 
 describe("LotLift approved objection retrieval", () => {
@@ -8,8 +8,25 @@ describe("LotLift approved objection retrieval", () => {
     expect(retrieveApprovedLotLiftResponse("This is too much money for us right now.")).toMatchObject({
       id: "price",
       rule_id: "objection:no-budget",
-      response: "“Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?”",
+      response: "“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”",
     });
+  });
+
+  it.each([
+    ["Send me an email.", "send-information"],
+    ["Call me another time.", "call-later"],
+    ["We need to think it over.", "need-to-think"],
+    ["I do not have time right now.", "busy"],
+    ["We are comparing competitors.", "competitor"],
+    ["Perhaps we are not the most interested right now.", "not-interested"],
+  ])("retrieves the matching approved policy for %s", (text, id) => {
+    expect(retrieveApprovedLotLiftResponse(text)?.id).toBe(id);
+  });
+
+  it("maps every route and the spouse-plus-price override to a policy tactic", () => {
+    expect(Object.keys(LOTLIFT_OBJECTION_TACTICS)).toHaveLength(11);
+    expect(retrieveApprovedLotLiftResponse("We need direct CRM integration.")?.tactic_id).toBe("truthful-limitation");
+    expect(retrieveApprovedLotLiftResponse("This is too much money.", ["My spouse needs to agree."])?.tactic_id).toBe("decision-criteria");
   });
 
   it("detects direct DNC requests and returns the fixed acknowledgement", () => {
@@ -37,7 +54,7 @@ describe("LotLift approved objection retrieval", () => {
     expect(response).toMatchObject({
       id: "price-with-spouse",
       rule_id: "objection:spouse-partner",
-      response: "“What will they want to know before they are comfortable?”",
+      response: "“I understand another decision-maker needs to weigh in. What will they want to know before they’re comfortable?”",
     });
   });
 });

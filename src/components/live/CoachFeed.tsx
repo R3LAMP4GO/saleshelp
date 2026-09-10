@@ -1,16 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowUp, ChevronDown, Loader2, MessageCircle, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { useStore, meetingBriefText } from "../../lib/store";
+import { useStore, meetingBriefText, speakerKey, speakerLabel } from "../../lib/store";
 import { useStickToBottom } from "../../lib/useStickToBottom";
 import { hasProviderKey } from "../../lib/ai/settings";
 import { runAnalysis } from "../../lib/analysis/engine";
 import { useI18n } from "../../i18n";
 import { log } from "../../lib/log";
 import { getSalesPilotLiveStatus, subscribeSalesPilotLiveStatus } from "../../lib/sales/liveStatus";
+import { getLotLiftLiveStatus, subscribeLotLiftLiveStatus } from "../../lib/lotlift/liveStatus";
 import { FindingRow } from "../analysis/FindingRow";
+import { CopyButton } from "../CopyButton";
+import { speakerDotClass } from "../../lib/speakerColors";
 import { openSolution, selectAndSeek } from "../analysis/useAnalysis";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,6 +116,68 @@ const SUGGESTIONS = [
 ] as const;
 
 /** Empty-state illustration: a quiet stack of coach cards waiting to arrive. */
+function SpeakerPicker() {
+  const segments = useStore((s) => s.segments);
+  const names = useStore((s) => s.speakerNames);
+  const selfSpeakerKey = useStore((s) => s.selfSpeakerKey);
+  const setSelfSpeakerKey = useStore((s) => s.setSelfSpeakerKey);
+  const speakers = useMemo(() => {
+    const seen = new Set<string>();
+    return segments.filter((segment) => {
+      if (segment.source !== "mix" || !segment.text.trim() || seen.has(speakerKey(segment))) return false;
+      seen.add(speakerKey(segment));
+      return true;
+    });
+  }, [segments]);
+
+  if (speakers.length < 2) return null;
+  return (
+    <section className="rounded-lg border px-3 py-2.5" aria-labelledby="speaker-picker-title">
+      <p id="speaker-picker-title" className="text-sm font-medium">Which speaker are you?</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">Choose once so your coach only responds to the other person.</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {speakers.map((speaker) => {
+          const key = speakerKey(speaker);
+          const selected = selfSpeakerKey === key;
+          return (
+            <Button
+              key={key}
+              type="button"
+              size="sm"
+              variant={selected ? "default" : "outline"}
+              className="h-7"
+              aria-pressed={selected}
+              onClick={() => setSelfSpeakerKey(key)}
+            >
+              <span className={`size-2 rounded-full ${speakerDotClass(speaker)}`} aria-hidden />
+              I’m {speakerLabel(speaker, names)}
+            </Button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function recommendationSourceLabel(source: string): string {
+  if (source === "model-grounded") return "Model-grounded";
+  if (source === "safe-fallback") return "Safe fallback";
+  return "Approved move";
+}
+
+function SayThisNow({ reply, recommendation }: Readonly<{ reply: string; recommendation?: { moveId: string; source: string; stage: string } }>) {
+  return (
+    <section className="rounded-lg border border-primary/50 px-3 py-2.5" aria-live="polite" aria-labelledby="say-this-now-title">
+      <div className="flex items-center justify-between gap-2">
+        <p id="say-this-now-title" className="text-sm font-semibold">Say this now</p>
+        <CopyButton value={reply} label="Copy" className="h-7" />
+      </div>
+      <p className="mt-1 text-sm leading-5">{reply}</p>
+      {recommendation && <p className="mt-2 text-xs text-muted-foreground">Goal: {recommendation.stage.replace(/-/g, " ")} · {recommendationSourceLabel(recommendation.source)}</p>}
+    </section>
+  );
+}
+
 function FeedPlaceholder() {
   return (
     <svg viewBox="0 0 220 140" className="mx-auto h-28 w-44 text-muted-foreground/40" aria-hidden>
@@ -161,6 +226,10 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
   const [input, setInput] = useState("");
   const [suggestionIdx, setSuggestionIdx] = useState(0);
   const [salesPilotStatus, setSalesPilotStatus] = useState(getSalesPilotLiveStatus);
+  const [lotLiftStatus, setLotLiftStatus] = useState(getLotLiftLiveStatus);
+  const solutionFindingId = useStore((s) => s.solutionFindingId);
+  const sayNow = useStore((s) => solutionFindingId ? s.findingSolutions[solutionFindingId]?.solution?.replies[0]?.reply ?? null : null);
+  const sayNowRecommendation = useStore((s) => solutionFindingId ? s.findings.find((finding) => finding.id === solutionFindingId)?.lotLiftRecommendation : undefined);
   const busy = askCards.some((c) => c.busy);
   const suggestion = t(SUGGESTIONS[suggestionIdx]);
   // Same follow-the-tail rule as the transcript: chase new cards only while
@@ -169,6 +238,7 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
   const { viewportRef } = useStickToBottom([findings.length, askCards]);
 
   useEffect(() => subscribeSalesPilotLiveStatus(() => setSalesPilotStatus(getSalesPilotLiveStatus())), []);
+  useEffect(() => subscribeLotLiftLiveStatus(() => setLotLiftStatus(getLotLiftLiveStatus())), []);
 
   // Rotate the ghost suggestion while the input is empty.
   useEffect(() => {
@@ -234,7 +304,7 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
           {t("feed.title")}
         </span>
         <div className="flex items-center gap-2">
-          {salesPilotStatus && <span aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground">{salesPilotStatus.profile} · {salesPilotStatus.stage.replace(/-/g, " ")} · {salesPilotStatus.label}</span>}
+          {salesPilotStatus ? <span aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground">{salesPilotStatus.profile} · {salesPilotStatus.stage.replace(/-/g, " ")} · {salesPilotStatus.label}</span> : <span aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground">{lotLiftStatus}</span>}
           <Button
             size="sm"
             variant="outline"
@@ -255,6 +325,8 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
 
       <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         <div className="flex flex-col gap-2 px-3 pb-2">
+          {recording && <SpeakerPicker />}
+          {recording && sayNow && <SayThisNow reply={sayNow} recommendation={sayNowRecommendation} />}
           {empty && (
             <div className="flex flex-col items-center gap-3 px-1 py-10">
               <FeedPlaceholder />

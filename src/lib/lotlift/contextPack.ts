@@ -1,7 +1,8 @@
 import type { TranscriptSegment } from "../types";
-import type { LotLiftCallState, LotLiftFieldValue } from "./callState";
+import { deriveLotLiftConversationStage, type LotLiftCallState, type LotLiftFieldValue } from "./callState";
 import { retrieveApprovedLotLiftResponse } from "./objections";
 import { lotLiftPlaybookRule, type LotLiftPlaybookRuleId } from "./playbook";
+import { LOTLIFT_COLD_CALL_POLICIES, coldCallStage, type LotLiftApprovedCallContext, type LotLiftColdCallStage } from "./turnEngine";
 
 const RECENT_WINDOW_MS = 90_000;
 const MAX_DURABLE_FACTS = 14;
@@ -10,13 +11,13 @@ const MAX_TEXT_CHARS = 500;
 
 export type LotLiftCallStage = "discovery" | "qualification" | "objection" | "close";
 
-type ContextPackFact = {
+export type ContextPackFact = {
   field: string;
   value: string;
   status: LotLiftFieldValue<string>["status"];
 };
 
-type ContextPackObjection = {
+export type ContextPackObjection = {
   rule_id: LotLiftPlaybookRuleId | null;
   objection: string;
   prospect_text: string;
@@ -27,8 +28,29 @@ type ContextPackObjection = {
 
 export type LotLiftApprovedProductFact = { id: string; statement: string };
 
+export type LotLiftStakeholderContext = {
+  owner: ContextPackFact[];
+  authority: ContextPackFact[];
+  decision_stakeholders: ContextPackFact[];
+  decision_blockers: ContextPackFact[];
+};
+
+export type LotLiftCompositionPayload = {
+  composition_version: 1;
+  full_transcript: TranscriptSegment[];
+  durable_facts: ContextPackFact[];
+  prior_objections: ContextPackObjection[];
+  stakeholder_context: LotLiftStakeholderContext;
+  sales_script_stage: { conversation_stage: import("./callState").LotLiftConversationStage; cold_call_stage: LotLiftColdCallStage };
+  approved_objection_card: { id: string; rule_id: LotLiftPlaybookRuleId } | null;
+  allowed_product_facts: LotLiftApprovedProductFact[];
+};
+
 export type LotLiftContextPack = {
   current_stage: LotLiftCallStage;
+  cold_call_stage: LotLiftColdCallStage;
+  approved_call_context: LotLiftApprovedCallContext;
+  eligible_cold_call_cards: string[];
   durable_facts: ContextPackFact[];
   recent_dialogue: Array<Pick<TranscriptSegment, "id" | "source" | "startMs" | "endMs" | "text">>;
   previous_objections: ContextPackObjection[];
@@ -51,7 +73,7 @@ function values(field: string, facts: readonly LotLiftFieldValue<string>[]): Con
   return facts.flatMap((fact) => fact.value ? [{ field, value: boundedText(fact.value, 160), status: fact.status }] : []);
 }
 
-function durableFacts(state: LotLiftCallState): ContextPackFact[] {
+export function lotLiftDurableFacts(state: LotLiftCallState): ContextPackFact[] {
   const scalarFields = ["current_solution", "authority", "stated_readiness", "urgency", "next_action", "renewal_date", "lead_arrival_point", "workflow_owner", "after_hours_process", "visibility_process"] as const;
   const listFields = ["pain_points", "quantified_pain", "decision_stakeholders", "stakeholders", "decision_blockers", "commitments", "buying_signals", "prior_answers", "open_questions"] as const;
   return [
@@ -67,7 +89,7 @@ function recentDialogue(conversation: readonly TranscriptSegment[], turn: Transc
     .map(({ id, source, startMs, endMs: segmentEndMs, text }) => ({ id, source, startMs, endMs: segmentEndMs, text: boundedText(text) }));
 }
 
-function priorObjections(state: LotLiftCallState, conversation: readonly TranscriptSegment[], turn: TranscriptSegment): ContextPackObjection[] {
+export function lotLiftPriorObjections(state: LotLiftCallState, conversation: readonly TranscriptSegment[], turn: TranscriptSegment): ContextPackObjection[] {
   const finalized = conversation.filter((segment) => segment.isFinal);
   const prospects = finalized.filter((segment) => segment.source === "them" && segment.id !== turn.id);
   const transcriptObjections = prospects.flatMap((segment) => {
@@ -100,6 +122,7 @@ export function buildLotLiftContextPack(
   conversation: readonly TranscriptSegment[],
   ruleIds: readonly LotLiftPlaybookRuleId[],
   approvedProductFacts: readonly LotLiftApprovedProductFact[] = [],
+  approvedCallContext: LotLiftApprovedCallContext = { representativeName: null, firstName: null, dealership: null },
 ): LotLiftContextPack {
   const playbookRules = ruleIds.slice(0, 3).map((id) => {
     const rule = lotLiftPlaybookRule(id);
@@ -114,10 +137,49 @@ export function buildLotLiftContextPack(
   });
   return {
     current_stage: callStage(state, turn),
-    durable_facts: durableFacts(state),
+    cold_call_stage: coldCallStage(conversation),
+    approved_call_context: approvedCallContext,
+    eligible_cold_call_cards: LOTLIFT_COLD_CALL_POLICIES.filter((policy) => policy.permitted_prior_stages.includes(coldCallStage(conversation))).map((policy) => policy.card_id).slice(0, 8),
+    durable_facts: lotLiftDurableFacts(state),
     recent_dialogue: recentDialogue(conversation, turn),
-    previous_objections: priorObjections(state, conversation, turn),
+    previous_objections: lotLiftPriorObjections(state, conversation, turn),
     approved_product_facts: approvedProductFacts.map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
     playbook_rules: playbookRules,
+  };
+}
+
+function fullTranscript(conversation: readonly TranscriptSegment[]): LotLiftCompositionPayload["full_transcript"] {
+  return conversation.filter((segment) => segment.isFinal).map((segment) => ({ ...segment }));
+}
+
+function stakeholderContext(state: LotLiftCallState): LotLiftStakeholderContext {
+  return {
+    owner: values("workflow_owner", [state.workflow_owner]),
+    authority: values("authority", [state.authority]),
+    decision_stakeholders: values("decision_stakeholders", state.decision_stakeholders),
+    decision_blockers: values("decision_blockers", state.decision_blockers),
+  };
+}
+
+/** Full, role-aware composition payload. Limits are detected by the composer; this never truncates. */
+export function buildLotLiftCompositionPayload(
+  state: LotLiftCallState,
+  turn: TranscriptSegment,
+  conversation: readonly TranscriptSegment[],
+  ruleIds: readonly LotLiftPlaybookRuleId[],
+  approvedProductFacts: readonly LotLiftApprovedProductFact[] = [],
+  _approvedCallContext: LotLiftApprovedCallContext = { representativeName: null, firstName: null, dealership: null },
+): LotLiftCompositionPayload {
+  const route = retrieveApprovedLotLiftResponse(turn.text);
+  // Preserve every final segment for reviewer visibility. The composer detects limits and fails closed.
+  return {
+    composition_version: 1,
+    full_transcript: fullTranscript(conversation),
+    durable_facts: lotLiftDurableFacts(state).slice(0, MAX_DURABLE_FACTS),
+    prior_objections: lotLiftPriorObjections(state, conversation, turn).slice(-MAX_PREVIOUS_OBJECTIONS),
+    stakeholder_context: stakeholderContext(state),
+    sales_script_stage: { conversation_stage: deriveLotLiftConversationStage(state), cold_call_stage: coldCallStage(conversation) },
+    approved_objection_card: route && ruleIds.includes(route.rule_id) ? { id: route.id, rule_id: route.rule_id } : null,
+    allowed_product_facts: approvedProductFacts.map(({ id, statement }) => ({ id, statement: boundedText(statement) })),
   };
 }

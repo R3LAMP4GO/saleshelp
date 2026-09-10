@@ -4,6 +4,7 @@ import type { CallStateEvent, LotLiftCallState, LotLiftFieldValue } from "./call
 const READY_TO_PROCEED = /\bnothing is stopping (?:me|us) from moving forward\b/i;
 const SPOUSE_OR_PARTNER = /\b(?:wife|husband|spouse|partner)\b/i;
 const TALK_TO_STAKEHOLDER = /\b(?:need|have) to talk to (?:my )?(wife|husband|spouse|partner)\b/i;
+const PRICE_VALUE_CONCERN = /\b(?:too expensive|too much money|no budget|can(?:not|'t) afford|costs? too much|price feels? high|value (?:is )?(?:not |isn['’]?t )?clear|whether (?:the )?value is clear|not sure (?:it['’]?s|it is|this is) worth)\b/i;
 
 function verified(value: string, segment: TranscriptSegment): LotLiftFieldValue<string> {
   return { value, status: "verified", evidence: { segment_id: segment.id, text: segment.text } };
@@ -15,10 +16,21 @@ export function lotLiftDecisionContextEvent(segment: TranscriptSegment): CallSta
   const readiness = READY_TO_PROCEED.test(segment.text) ? verified("ready to proceed", segment) : undefined;
   const stakeholder = TALK_TO_STAKEHOLDER.exec(segment.text)?.[1]?.toLowerCase();
   const stakeholders = stakeholder ? [verified(stakeholder, segment)] : [];
-  const blockers = stakeholder ? [verified("consult decision stakeholder", segment)] : [];
-  return readiness || blockers.length || stakeholders.length
-    ? { type: "decision-context", readiness, blockers, stakeholders }
-    : null;
+  const priceValueConcern = PRICE_VALUE_CONCERN.test(segment.text);
+  const blockers = [
+    ...(stakeholder ? [verified("consult decision stakeholder", segment)] : []),
+    ...(priceValueConcern ? [verified("price/value uncertainty", segment)] : []),
+  ];
+  if (readiness || blockers.length || stakeholders.length) {
+    return {
+      type: "decision-context",
+      readiness,
+      blockers,
+      stakeholders,
+      selected_objection_route: priceValueConcern ? verified("price-value", segment) : undefined,
+    };
+  }
+  return null;
 }
 
 export function isLotLiftSpousePartnerObjection(segment: TranscriptSegment): boolean {

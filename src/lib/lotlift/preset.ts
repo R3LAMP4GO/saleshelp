@@ -6,6 +6,7 @@ export function lotLiftLocalPreset(settings: Settings): Partial<Settings> {
   return {
     llmProviders: { ...settings.llmProviders, realtime: "ollama", deep: "ollama" },
     models: { ...settings.models, ollama: { ...settings.models.ollama, realtime: "qwen3:4b", deep: "qwen3:8b" } },
+    lotLiftLocalModelDeadlineMs: 4_000,
     transcriptionProvider: "mlx-parakeet",
     evaluations: buildLotLiftEvaluations(),
     delivery: { ...settings.delivery, pace: true, pauses: true, pitch: false, tone: false },

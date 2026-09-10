@@ -48,6 +48,7 @@ import { CLOUD_ENABLED } from "./lib/flags";
 import { initVoiceTyping } from "./lib/voiceTyping/host";
 import { preloadZhConverter } from "./lib/zhConvert";
 import { log } from "./lib/log";
+import { ensureOllamaRealtimeModelResident } from "./lib/ai/ollamaResidency";
 
 /**
  * Build the window-resize handler that re-syncs fullscreen state. Extracted to
@@ -111,6 +112,9 @@ function useFullscreen(): boolean {
 const App = () => {
   useThemePreference();
   const onboarded = useStore((s) => s.settings.onboarded);
+  const realtimeProvider = useStore((s) => s.settings.llmProviders.realtime);
+  const realtimeModel = useStore((s) => s.settings.models.ollama.realtime);
+  const ollamaApiKey = useStore((s) => s.settings.ollamaApiKey);
   const fullscreen = useFullscreen();
   // CSS-drawn rounded corners only make sense over the macOS transparent
   // window; the Windows main window is opaque and DWM handles its shape.
@@ -170,6 +174,21 @@ const App = () => {
       unVoiceTyping();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isTauri() || realtimeProvider !== "ollama") return;
+    let active = true;
+    const settings = useStore.getState().settings;
+    const startedAt = performance.now();
+    void ensureOllamaRealtimeModelResident(settings)
+      .then((result) => {
+        if (active && result === "warmed") log.info("ollama: realtime model prewarmed", { provider: "ollama", model: realtimeModel, elapsed_ms: Math.round(performance.now() - startedAt) });
+      })
+      .catch((error) => {
+        if (active) log.warn("ollama: realtime model prewarm failed", { provider: "ollama", model: realtimeModel, error_name: error instanceof Error ? error.name : "UnknownError", elapsed_ms: Math.round(performance.now() - startedAt) });
+      });
+    return () => { active = false; };
+  }, [ollamaApiKey, realtimeModel, realtimeProvider]);
 
   useEffect(() => {
     if (!isTauri()) return;

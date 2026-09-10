@@ -38,6 +38,7 @@ import { DEFAULT_MODELS } from "./ai/providers";
 import { countFillerSounds } from "./analysis/fillerWords";
 import { log } from "./log";
 import type { SalesMeetingMetadata } from "./sales/meeting";
+import { clampLotLiftLocalModelDeadline, LOTLIFT_LOCAL_MODEL_DEADLINE_DEFAULT_MS } from "./lotlift/localDeadline";
 
 /** A translate function bound to a language, for resolving built-in templates. */
 const tFor = (language: AppLanguage) => (key: TranslationKey) => translate(language, key);
@@ -136,6 +137,7 @@ const DEFAULT_SETTINGS: Settings = {
   parleyApiKey: "",
   reasoningEffort: { realtime: "low", deep: "medium" },
   models: DEFAULT_MODELS,
+  lotLiftLocalModelDeadlineMs: LOTLIFT_LOCAL_MODEL_DEADLINE_DEFAULT_MS,
   transcriptionProvider: "soniox",
   sonioxApiKey: "",
   deepgramApiKey: "",
@@ -538,6 +540,8 @@ interface ParleyState {
   settings: Settings;
   /** Live speaker-key → custom name map (e.g. "them-1" → "重高"). Per meeting. */
   speakerNames: Record<string, string>;
+  /** The diarized speaker the user identifies as themselves. Per call, never persisted. */
+  selfSpeakerKey: string | null;
   /** Meeting to-do / agenda checklist. */
   todos: TodoItem[];
   /** Per-meeting context/description (who's here, roles) — NOT a global setting. */
@@ -617,6 +621,8 @@ interface ParleyState {
 
   /** Assign/clear a custom name for a speaker key. */
   setSpeakerName: (key: string, name: string) => void;
+  /** Identify which diarized speaker is the user for this live call. */
+  setSelfSpeakerKey: (key: string | null) => void;
 
   // transcript
   /**
@@ -682,6 +688,7 @@ export const useStore = create<ParleyState>()(
       evaluations: evalsFromDefs(DEFAULT_SETTINGS.evaluations),
       settings: DEFAULT_SETTINGS,
       speakerNames: {},
+      selfSpeakerKey: null,
       todos: [],
       meetingContext: "",
       meetingFolderId: null,
@@ -1032,6 +1039,7 @@ export const useStore = create<ParleyState>()(
       replayFolderId: null,
       segments: [],
       speakerNames: {},
+      selfSpeakerKey: null,
       ...CLEARED_STUDY_SLICE,
       prosody: null,
       micSessionRateHz: null,
@@ -1076,6 +1084,7 @@ export const useStore = create<ParleyState>()(
       meetingPausedTotalMs: 0,
       segments: [],
       speakerNames: {},
+      selfSpeakerKey: null,
       ...CLEARED_STUDY_SLICE,
       prosody: null,
       micSessionRateHz: null,
@@ -1099,6 +1108,7 @@ export const useStore = create<ParleyState>()(
       }
       return { speakerNames: next };
     }),
+  setSelfSpeakerKey: (selfSpeakerKey) => set({ selfSpeakerKey }),
 
   setFinalizingMeeting: (v) => set({ isFinalizingMeeting: v }),
 
@@ -1220,6 +1230,7 @@ export const useStore = create<ParleyState>()(
             // Backfill delivery-coaching toggles for states saved before they existed.
             delivery: { ...DEFAULT_SETTINGS.delivery, ...p.delivery },
             reasoningEffort,
+            lotLiftLocalModelDeadlineMs: clampLotLiftLocalModelDeadline(p.lotLiftLocalModelDeadlineMs),
             // Fold latest built-in templates over persisted ones, keeping customs.
             todoTemplates: reconcileTemplates(
               buildPresetTodoTemplates(t),

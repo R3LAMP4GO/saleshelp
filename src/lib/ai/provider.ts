@@ -109,7 +109,7 @@ export function getProviderOptions(settings: Settings, workload: LlmWorkload) {
   const info = PROVIDER_BY_ID[provider];
   if (info.kind !== "openai-compatible") return {};
 
-  const opts: Record<string, string | { require_parameters: boolean }> = {};
+  const opts: Record<string, string | boolean | { require_parameters: boolean }> = {};
   if (isReasoningModel(settings.models[provider][workload])) {
     opts.reasoningEffort = settings.reasoningEffort[workload];
   }
@@ -118,6 +118,10 @@ export function getProviderOptions(settings: Settings, workload: LlmWorkload) {
   // match schema"). Force it to only route to backends that honor the schema.
   if (info.id === "openrouter") {
     opts.provider = { require_parameters: true };
+  }
+  // qwen3 otherwise spends its small structured-selection budget on hidden reasoning.
+  if (info.id === "ollama") {
+    opts.think = false;
   }
 
   return Object.keys(opts).length ? { [info.id]: opts } : {};

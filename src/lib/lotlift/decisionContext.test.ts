@@ -29,6 +29,18 @@ describe("LotLift durable decision context", () => {
     expect(lotLiftDecisionContextChange(state, spouseEvent)?.evidence).toEqual(state.stated_readiness.evidence);
   });
 
+  it("persists a verified price/value route from the prospect's first concern", () => {
+    const priceEvent = lotLiftDecisionContextEvent(prospect("price", "This is too much money for us right now."));
+    expect(priceEvent).toMatchObject({
+      type: "decision-context",
+      blockers: [expect.objectContaining({ value: "price/value uncertainty", status: "verified" })],
+      selected_objection_route: expect.objectContaining({ value: "price-value", status: "verified" }),
+    });
+    const state = reduceLotLiftCallState(newLotLiftCallState("call"), priceEvent!);
+    expect(state.selected_objection_route).toMatchObject({ value: "price-value", status: "verified" });
+    expect(state.decision_blockers).toHaveLength(1);
+  });
+
   it("requires two explicit verified facts before flagging a spouse or partner", () => {
     const spouseEvent = lotLiftDecisionContextEvent(prospect("wife", "I need to talk to my wife."));
     const empty = newLotLiftCallState("call");

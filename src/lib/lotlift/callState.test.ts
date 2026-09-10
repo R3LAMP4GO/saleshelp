@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyLotLiftAiStatePatch,
+  deriveLotLiftConversationStage,
   lotLiftAutomationEligibility,
   LotLiftCallStateManager,
   newLotLiftCallState,
@@ -26,17 +27,36 @@ describe("LotLift Call State", () => {
     const state = newLotLiftCallState("call_1");
 
     expect(state).toMatchObject({
-      schema_version: 4,
+      schema_version: 6,
       dealership: { value: null, status: "unknown", evidence: null },
       lead_arrival_point: { value: null, status: "unknown", evidence: null },
       renewal_date: { value: null, status: "unknown", evidence: null },
       stated_readiness: { value: null, status: "unknown", evidence: null },
       fit_status: { value: null, status: "unknown", evidence: null },
       next_action_at: { value: null, status: "unknown", evidence: null },
+      selected_objection_route: { value: null, status: "unknown", evidence: null },
     });
     expect(state).toMatchObject({
       lead_sources: [], pain_points: [], stakeholders: [], decision_blockers: [], decision_stakeholders: [], buying_signals: [], recurring_objections: [],
     });
+  });
+
+  it("derives stages from verified evidence and records deterministic move progress", () => {
+    let state = newLotLiftCallState("call-stage");
+    expect(deriveLotLiftConversationStage(state)).toBe("owner-identification");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("BDC manager") });
+    expect(deriveLotLiftConversationStage(state)).toBe("relevance-discovery");
+    state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("AutoTrader") });
+    expect(deriveLotLiftConversationStage(state)).toBe("gap-confirmation");
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Leads wait overnight") });
+    expect(deriveLotLiftConversationStage(state)).toBe("qualification");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "authority", fact: verified("I make that decision") });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "workflow-check", discovery_dimension: "authority" });
+    expect(deriveLotLiftConversationStage(state)).toBe("meeting-invitation");
+    expect(state).toMatchObject({ last_move_id: "workflow-check", last_discovery_dimension: "authority" });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "close", substantive_refusal: true });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "close", substantive_refusal: true });
+    expect(deriveLotLiftConversationStage(state)).toBe("terminal");
   });
 
   it("keeps explicit facts when a later inferred capture disagrees", () => {

@@ -136,6 +136,10 @@ bun run tauri dev
 
 Before opening a PR, `bunx tsc --noEmit` and `bunx vitest run` must both pass. See [CLAUDE.md](CLAUDE.md) for the repository conventions.
 
+### LotLift local selector benchmark
+
+With Ollama running locally, run `bun run benchmark:lotlift-local`. It never downloads models; it benchmarks installed `qwen3:4b`, `qwen3:8b`, and compatible installed candidates, then writes a timestamped JSON report under `tmp/lotlift-local-benchmark/`. The report records hardware, Ollama version, prompt/output sizes, cold and warm p50/p95 latency, schema-validity rate, move-selection correctness, and whether warm p95 meets the 2,000 ms gate. Set `LOTLIFT_BENCH_RUNS` or pass model names to limit a run.
+
 ---
 
 ## 🤝 Contributing

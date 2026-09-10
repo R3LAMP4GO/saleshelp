@@ -21,6 +21,17 @@ Use this order: reach the right owner → establish relevant problem context →
 
 LotLift is a lead-coverage workflow for **approved inbound online inquiry sources**. It helps independent dealerships see and consistently handle leads when the team is busy or after hours.
 
+## Policy tactic metadata
+
+- **permission-and-route:** Ask for the workflow owner or permission for one discovery turn.
+- **workflow-discovery:** Learn one verified source, arrival, ownership, after-hours, or visibility fact.
+- **impact-clarification / solution-verification:** Clarify consequence or test stated existing coverage without assuming a gap.
+- **decision-criteria / concern-isolation:** Surface one blocker before answering price, value, partner, or alternative concerns.
+- **consented-follow-up / scoped-next-step:** Require prospect consent; a workflow check also requires source, owner, gap, and authority evidence.
+- **truthful-limitation / respectful-exit:** State supported boundaries, honor opt-outs, and end cleanly when disqualified.
+
+Policy rationale: earn each conversation advance with verified prospect evidence, ask one answerable question when a fact is missing, and use only approved product or policy facts. Never override an opt-out or fill an evidence gap with a claim.
+
 ## Script stages
 
 ### stage:opening
@@ -149,8 +160,8 @@ Goal: identify the person who owns online lead response; never pitch the recepti
 
 ### Reflexes and current solutions
 
-- **“We’re not interested.”** — “Fair enough. Before I close this out, is that because marketplace inquiries are already consistently covered there, or because it is not a priority right now?”
-- **“We already have a CRM.”** — “That makes sense. When a marketplace inquiry arrives, does it land directly in that workflow and get owned immediately, or is there still an inbox and handoff?” If it is truly covered: “LotLift probably is not useful there.”
+- **“We’re not interested.”** — “Fair enough. Before I close this out, is that because marketplace inquiries are already consistently covered there, or because it isn’t a priority right now?”
+- **“We already have a CRM.”** — “That makes sense. When a marketplace inquiry comes in, does it go straight into that workflow and get picked up right away, or is there still an inbox or handoff first?” If it’s truly covered: “LotLift probably isn’t useful there.”
 - **“We have a BDC / internet department.”** — “That is usually the right setup. How does the team verify coverage after hours or when the usual person is off?”
 - **“Our salespeople handle it.”** — “How is ownership decided when two people are busy or it comes in late?”
 - **“We’re happy with what we have.”** — “Good—if it is working, you should keep it. What are you using to make sure paid online inquiries do not sit unworked?”
@@ -179,9 +190,9 @@ Goal: identify the person who owns online lead response; never pitch the recepti
 
 ### Buying and close objections
 
-- **Too expensive / no budget:** “Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?” Isolate the real concern before any scope or pricing response.
+- **Too expensive / no budget:** “I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?” Isolate the real concern before discussing scope.
 - **Need to think:** “What is the biggest thing you want to feel certain about before deciding?” Then ask whether anything else prevents a yes.
-- **Need owner/partner:** “What will they want to know before they are comfortable?” Invite them to a focused decision call.
+- **Need owner/partner:** “What will they want to know before they’re comfortable?” Invite them to a focused decision call.
 - **Comparing competitors:** “What criteria are you using? Where do you see LotLift as stronger or weaker?” Do not conceal limitations.
 - **Free trial:** “What would need to be true after 30 days for you to decide it is worth paying for?” Define controlled scope and end date.
 - **ROI guarantee:** “I cannot responsibly guarantee a number before we know your lead volume, current process, team follow-up, source mix, and approved workflow.” Agree measurable operating outcomes instead.
@@ -209,18 +220,18 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Learn whether coverage is genuinely complete before closing.
 - **Approved strategy:** Ask one brief workflow-coverage question, then respect a second no.
 - **Good examples:**
-  - “Fair enough. Is that because marketplace inquiries are consistently covered, or because it is not a priority right now?”
+  - “Fair enough. Is that because marketplace inquiries are consistently covered, or because it isn’t a priority right now?”
 - **Prohibited behavior:** Do not argue, feature-dump, or ask more than once after a clear second no.
 - **Exit condition:** Coverage is confirmed, or the prospect declines again.
 
 ### objection:no-budget
 - **Intent:** Prospect raises price, affordability, or budget.
 - **When to use:** They mention cost, no budget, or that it is too expensive.
-- **Objective:** Isolate the actual concern before discussing scope or pricing.
-- **Approved strategy:** Ask whether the concern is monthly cost, setup effort, alternatives, or unclear return.
+- **Objective:** Isolate the actual concern while giving the approved introductory price.
+- **Approved strategy:** State the approved first-50-customer price, then ask whether the concern is price, setup effort, alternatives, or unclear value.
 - **Good examples:**
-  - “Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?”
-- **Prohibited behavior:** Do not invent pricing, guarantee ROI, or negotiate before understanding the concern.
+  - “I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”
+- **Prohibited behavior:** Do not alter the approved price, promise the referral offer, guarantee ROI, or negotiate before understanding the concern.
 - **Exit condition:** A specific concern is named, or the prospect declines to continue.
 
 ### objection:existing-crm
@@ -229,7 +240,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Verify whether ownership and after-hours coverage are genuinely complete.
 - **Approved strategy:** Ask where the inquiry lands and whether it is immediately owned.
 - **Good examples:**
-  - “When a marketplace inquiry arrives, does it land directly in that workflow and get owned immediately, or is there still an inbox and handoff?”
+  - “When a marketplace inquiry comes in, does it go straight into that workflow and get picked up right away, or is there still an inbox or handoff first?”
 - **Prohibited behavior:** Do not disparage the current system or claim LotLift replaces it.
 - **Exit condition:** The workflow is confirmed covered, or a specific coverage gap appears.
 
@@ -239,7 +250,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Learn the decision criteria and create a focused joint next step.
 - **Approved strategy:** Ask what the other person needs to know, then invite them to the decision call.
 - **Good examples:**
-  - “What will they want to know before they are comfortable?”
+  - “I understand another decision-maker needs to weigh in. What will they want to know before they’re comfortable?”
 - **Prohibited behavior:** Do not pressure the prospect to decide without the stakeholder.
 - **Exit condition:** A joint next step is scheduled, or the decision criteria are captured.
 

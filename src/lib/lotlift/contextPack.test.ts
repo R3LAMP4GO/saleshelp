@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TranscriptSegment } from "../types";
 import { newLotLiftCallState, type LotLiftFieldValue } from "./callState";
-import { buildLotLiftContextPack } from "./contextPack";
+import { buildLotLiftCompositionPayload, buildLotLiftContextPack } from "./contextPack";
 
 function segment(id: string, source: TranscriptSegment["source"], text: string, endMs: number): TranscriptSegment {
   return { id, source, text, speaker: 0, isFinal: true, startMs: endMs - 100, endMs };
@@ -45,5 +45,27 @@ describe("LotLift ContextPack", () => {
       rep_response: "How are those leads handled after hours?",
     })]);
     expect(pack.playbook_rules.map((rule) => rule.id)).toEqual(["objection:existing-crm", "qualification:pain", "qualification:authority"]);
+  });
+
+  it("preserves the complete role-aware transcript and stakeholder evidence for composition", () => {
+    const state = newLotLiftCallState("composition");
+    state.workflow_owner = verified("internet manager", "owner");
+    state.authority = verified("general manager", "authority");
+    state.decision_stakeholders = [verified("wife", "stakeholder")];
+    const conversation = [
+      segment("owner", "them", "The internet manager owns it.", 100),
+      segment("rep", "me", "Who decides?", 200),
+      segment("authority", "them", "I am the general manager.", 300),
+    ];
+    const payload = buildLotLiftCompositionPayload(state, conversation[2]!, conversation, []);
+    expect(payload).toMatchObject({
+      composition_version: 1,
+      full_transcript: conversation,
+      stakeholder_context: {
+        owner: [expect.objectContaining({ value: "internet manager", status: "verified" })],
+        authority: [expect.objectContaining({ value: "general manager", status: "verified" })],
+        decision_stakeholders: [expect.objectContaining({ value: "wife", status: "verified" })],
+      },
+    });
   });
 });

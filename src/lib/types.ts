@@ -141,6 +141,8 @@ export interface TimelineEvent {
   id: string;
   /** Sales-policy versions used for this recommendation, when profile-selected. */
   salesMetadata?: import("./sales/meeting").SalesRecommendationMetadata;
+  /** Concise live-coach provenance; never includes model reasoning. */
+  lotLiftRecommendation?: { moveId: string; source: string; stage: string };
   /** Moment on the recording timeline (ms). */
   atMs: number;
   /** My problem vs their move → which lane the marker sits in. Absent under the
@@ -332,6 +334,8 @@ export interface Settings {
   reasoningEffort: ModelReasoningEfforts;
   /** Per-provider model ids (ids differ between Anthropic and OpenRouter). */
   models: Record<LlmProvider, ProviderModels>;
+  /** Deadline for LotLift's local Ollama refinement; deterministic coaching remains immediate. */
+  lotLiftLocalModelDeadlineMs: number;
   /** Active speech-to-text provider. */
   transcriptionProvider: SttProviderId;
   sonioxApiKey: string;

@@ -14,7 +14,7 @@ vi.mock("../cloud/client", () => ({ cloudToken: () => null, CLOUD_URL: "https://
 
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { getModel } from "./provider";
+import { getModel, getProviderOptions } from "./provider";
 
 /**
  * Regression guard for the failure the pre-flight coach surfaced as
@@ -56,5 +56,11 @@ describe("getModel credential handling", () => {
   it("leaves a clean key exactly as typed", () => {
     getModel(settingsFor("anthropic", "anthropicApiKey", "sk-ant-clean"), "realtime");
     expect(anthropicMock.mock.calls[0][0]).toMatchObject({ apiKey: "sk-ant-clean" });
+  });
+});
+
+describe("Ollama provider options", () => {
+  it("disables hidden qwen reasoning for bounded structured selection", () => {
+    expect(getProviderOptions(settingsFor("ollama", "ollamaApiKey", ""), "realtime")).toEqual({ ollama: { think: false } });
   });
 });

@@ -15,7 +15,7 @@ describe("LotLift fast reply path", () => {
   afterEach(() => {
     cleanups.splice(0).forEach((cleanup) => cleanup());
     const settings = useStore.getState().settings;
-    useStore.setState({ segments: [], findings: [], findingSolutions: {}, solutionFindingId: null, settings: { ...settings, llmProviders: { ...settings.llmProviders, realtime: "groq" } } });
+    useStore.setState({ segments: [], findings: [], findingSolutions: {}, solutionFindingId: null, selfSpeakerKey: null, settings: { ...settings, llmProviders: { ...settings.llmProviders, realtime: "groq" } } });
   });
 
   it("turns a final prospect price objection into the one approved reply", async () => {
@@ -42,10 +42,33 @@ describe("LotLift fast reply path", () => {
     expect(state.findings).toMatchObject([{ id: "lotlift-prospect-price-1", title: "“It’s too expensive” or “No budget.”" }]);
     expect(state.findingSolutions["lotlift-prospect-price-1"]?.solution?.replies).toEqual([{
       kind: "reframe",
-      reply: "“I can see why you would want to be careful about another tool. When you say expensive, is the issue the monthly number itself, the setup effort, comparison with another option, or that the return is not clear enough?”",
-      consideration: "Isolate the real concern before discussing a supported scope.",
+      reply: "“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”",
+      consideration: "Isolate the actual concern while giving the approved introductory price.",
     }]);
     expect(state.solutionFindingId).toBe("lotlift-prospect-price-1");
+  });
+
+  it("replays the latest other-speaker objection when identity is selected", async () => {
+    const current = useStore.getState();
+    useStore.setState({
+      meetingStatus: "recording",
+      meetingStartedAt: 2,
+      meetingId: "speaker-selected",
+      selfSpeakerKey: null,
+      settings: { ...current.settings, evaluations: evalsFromDefs(buildLotLiftEvaluations()) },
+      segments: [],
+      findings: [],
+      findingSolutions: {},
+      solutionFindingId: null,
+    });
+    cleanups.push(initLotLiftCoach());
+    useStore.setState({ segments: [
+      { id: "self", source: "mix", speaker: 1, isFinal: true, startMs: 0, endMs: 10, text: "I wanted to ask you a question." },
+      { id: "prospect", source: "mix", speaker: 2, isFinal: true, startMs: 11, endMs: 20, text: "Thank you, but I’m not interested." },
+    ] });
+    useStore.getState().setSelfSpeakerKey("mix-1");
+    await Promise.resolve();
+    expect(useStore.getState().findingSolutions["lotlift-prospect"]?.solution?.replies[0]?.reply).toContain("Before I close this out");
   });
 
   it("acknowledges DNC once and suppresses later sales responses", async () => {
@@ -104,12 +127,12 @@ describe("LotLift fast reply path", () => {
     await Promise.resolve();
 
     expect(useStore.getState().findingSolutions["lotlift-prospect-price-2"]?.solution?.replies[0]?.reply)
-      .toBe("“I can see why you would want to be careful about another tool. When you say expensive, is the issue the monthly number itself, the setup effort, comparison with another option, or that the return is not clear enough?”");
+      .toBe("“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”");
   });
 
   it("uses loaded state and intervening spouse context for a later price turn", async () => {
     const manager = new LotLiftCallStateManager({ load: async (id) => ({ ...newLotLiftCallState(id), revision: 1, current_solution: { value: "VinSolutions", status: "verified", evidence: { segment_id: "saved", text: "We use VinSolutions." } } }), save: async (state) => ({ ...state, revision: state.revision + 1 }) });
-    const analyzer = vi.fn(async () => ({ event_type: "objection" as const, confidence: 1, needs_coaching: true, playbook_rule_ids: ["objection:spouse-partner" as const], state_events: [], say: "Unapproved model copy", goal: "Learn the decision criteria and create a focused joint next step.", source: "model" as const }));
+    const analyzer = vi.fn(async (): Promise<LotLiftTurnIntelligence> => ({ event_type: "objection", confidence: 1, needs_coaching: true, move_id: null, selected_move: null, playbook_rule_ids: ["objection:spouse-partner"], state_events: [], source: "model" }));
     const current = useStore.getState();
     useStore.setState({ meetingStatus: "recording", meetingStartedAt: 3, meetingId: "call-context", settings: { ...current.settings, llmProviders: { ...current.settings.llmProviders, realtime: "ollama" }, evaluations: evalsFromDefs(buildLotLiftEvaluations()) }, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
     cleanups.push(initLotLiftCoach(manager, analyzer));
@@ -121,23 +144,35 @@ describe("LotLift fast reply path", () => {
     ] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(analyzer).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ current_solution: expect.objectContaining({ value: "VinSolutions" }) }), conversation: expect.arrayContaining([expect.objectContaining({ id: "me" }), expect.objectContaining({ id: "wife" })]), relevantRuleIds: ["objection:no-budget"] }));
-    expect(useStore.getState().findingSolutions["lotlift-price"]?.solution?.replies[0]?.reply).toBe("“I can see why you would want to be careful about another tool. When you say expensive, is the issue the monthly number itself, the setup effort, comparison with another option, or that the return is not clear enough?”");
+    expect(useStore.getState().findingSolutions["lotlift-price"]?.solution?.replies[0]?.reply).toBe("“I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”");
   });
 
-  it("does not display Ollama wording without a deterministic approved retrieval", async () => {
-    const analyzer = vi.fn(async () => ({ event_type: "objection" as const, confidence: 1, needs_coaching: true, playbook_rule_ids: ["objection:no-budget" as const], state_events: [], say: "Unapproved model copy", goal: "Unapproved model goal", source: "model" as const }));
+  it("invokes the bounded analyzer with the default Groq realtime provider", async () => {
+    const analyzer = vi.fn(async (): Promise<LotLiftTurnIntelligence> => ({ event_type: "none", confidence: 1, needs_coaching: false, move_id: null, selected_move: null, playbook_rule_ids: [], state_events: [], source: "fallback" }));
+    const current = useStore.getState();
+    useStore.setState({ meetingStatus: "recording", meetingStartedAt: 4, meetingId: "groq-analyzer", settings: { ...current.settings, llmProviders: { ...current.settings.llmProviders, realtime: "groq" }, evaluations: evalsFromDefs(buildLotLiftEvaluations()) }, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
+    cleanups.push(initLotLiftCoach(undefined, analyzer));
+    useStore.setState({ segments: [{ id: "groq-turn", source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 1, text: "Okay." }] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(analyzer).toHaveBeenCalledWith(expect.objectContaining({ turn: expect.objectContaining({ id: "groq-turn" }), settings: expect.objectContaining({ llmProviders: expect.objectContaining({ realtime: "groq" }) }) }));
+  });
+
+  it("replaces unapproved Ollama wording with a safe discovery response", async () => {
+    const analyzer = vi.fn(async (): Promise<LotLiftTurnIntelligence> => ({ event_type: "objection", confidence: 1, needs_coaching: true, move_id: null, selected_move: null, playbook_rule_ids: ["objection:no-budget"], state_events: [], source: "model" }));
     const current = useStore.getState();
     useStore.setState({ meetingStatus: "recording", meetingStartedAt: 4, meetingId: "model-only-copy", settings: { ...current.settings, llmProviders: { ...current.settings.llmProviders, realtime: "ollama" }, evaluations: evalsFromDefs(buildLotLiftEvaluations()) }, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
     cleanups.push(initLotLiftCoach(undefined, analyzer));
     useStore.setState({ segments: [{ id: "ambiguous", source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 1, text: "Okay." }] });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(useStore.getState().findings).toEqual([]);
+    expect(useStore.getState().findingSolutions["lotlift-ambiguous"]?.solution?.replies[0]?.reply).toBe("Who owns paid online inquiry response there: the internet manager, BDC manager, sales manager, or someone else?");
+    expect(useStore.getState().findingSolutions["lotlift-ambiguous"]?.solution?.replies[0]?.reply).not.toBe("Unapproved model copy");
   });
 
-  it("drops stale rapid prospect results", async () => {
+  it("cancels stale rapid prospect analysis before its result can render", async () => {
     let resolveFirst!: (value: any) => void;
-    const analyzer: (input: any) => Promise<LotLiftTurnIntelligence> = vi.fn((input: any) => input.turn.id === "first" ? new Promise<LotLiftTurnIntelligence>((resolve) => { resolveFirst = resolve; }) : Promise.resolve({ event_type: "none" as const, confidence: 1, needs_coaching: false, playbook_rule_ids: [], state_events: [], say: null, goal: null, source: "model" as const }));
+    let firstSignal: AbortSignal | undefined;
+    const analyzer: (input: any) => Promise<LotLiftTurnIntelligence> = vi.fn((input: any) => input.turn.id === "first" ? new Promise<LotLiftTurnIntelligence>((resolve) => { firstSignal = input.signal; resolveFirst = resolve; }) : Promise.resolve({ event_type: "none" as const, confidence: 1, needs_coaching: false, move_id: null, selected_move: null, playbook_rule_ids: [], state_events: [], source: "model" as const }));
     const durable = new Map<string, LotLiftCallState>();
     const manager = new LotLiftCallStateManager({ load: async (id) => durable.get(id) ?? null, save: async (state) => { const next = { ...state, revision: state.revision + 1 }; durable.set(next.call_id, next); return next; } });
     const current = useStore.getState();
@@ -146,11 +181,13 @@ describe("LotLift fast reply path", () => {
     useStore.setState({ segments: [{ id: "first", source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 1, text: "This is too much money." }] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     useStore.setState({ segments: [...useStore.getState().segments, { id: "second", source: "them", speaker: 0, isFinal: true, startMs: 2, endMs: 3, text: "Okay." }] });
-    resolveFirst({ event_type: "objection", confidence: 1, needs_coaching: true, playbook_rule_ids: ["objection:no-budget"], state_events: [{ type: "recurring-objection", fact: { value: "money", status: "verified", evidence: { segment_id: "first", text: "money" } } }], say: "“I can see why you would want to be careful about another tool. When you say expensive, is the issue the monthly number itself, the setup effort, comparison with another option, or that the return is not clear enough?”", goal: "Isolate the actual concern before discussing scope or pricing.", source: "model" });
+    expect(firstSignal?.aborted).toBe(true);
+    resolveFirst({ event_type: "objection", confidence: 1, needs_coaching: true, move_id: null, selected_move: null, playbook_rule_ids: ["objection:no-budget"], state_events: [{ type: "recurring-objection", fact: { value: "money", status: "verified", evidence: { segment_id: "first", text: "money" } } }], source: "model" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     await manager.flush("lotlift-call-stale");
-    expect(useStore.getState().findings).toEqual([]);
-    expect(durable.get("lotlift-call-stale")).toMatchObject({ recurring_objections: [] });
+    expect(useStore.getState().findings).toMatchObject([{ id: "lotlift-first" }, { id: "lotlift-second", title: "Identify the workflow owner" }]);
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-first")).toBeDefined();
+    expect(durable.get("lotlift-call-stale")).toMatchObject({ recurring_objections: [expect.objectContaining({ value: "P2", count: 1 })] });
   });
 
   it("deduplicates subscribers and resets state on meeting restart", async () => {
@@ -213,8 +250,8 @@ describe("LotLift fast reply path", () => {
     ] });
     await Promise.resolve();
 
-    expect(useStore.getState().findings.find((item) => item.id === "lotlift-wife")).toBeUndefined();
-    expect(useStore.getState().findingSolutions["lotlift-wife"]).toBeUndefined();
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-wife")).toMatchObject({ title: "Decision context changed" });
+    expect(useStore.getState().findingSolutions["lotlift-wife"]?.solution?.replies[0]?.reply).toBe("Who owns paid online inquiry response there: the internet manager, BDC manager, sales manager, or someone else?");
   });
 
   it("keeps verified readiness through more than eight later turns", async () => {
@@ -231,7 +268,7 @@ describe("LotLift fast reply path", () => {
     useStore.setState({ segments: [readiness, ...laterTurns, spouse] });
     await manager.flush("lotlift-durable-decision-context");
 
-    expect(useStore.getState().findings.find((item) => item.id === "lotlift-partner-after-nine")).toBeUndefined();
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-partner-after-nine")).toMatchObject({ title: "Decision context changed" });
   });
 
   it("uses the approved spouse-partner response without claiming a contradiction for a normal objection", async () => {
@@ -247,7 +284,7 @@ describe("LotLift fast reply path", () => {
     }] });
     await Promise.resolve();
 
-    expect(useStore.getState().findings.find((item) => item.id === "lotlift-partner")).toBeUndefined();
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-partner")).toMatchObject({ title: "Identify the workflow owner" });
   });
 
   it("never claims a contradiction when either verified decision fact is missing", async () => {
@@ -289,7 +326,7 @@ describe("LotLift fast reply path", () => {
     }] });
     await manager.flush("lotlift-inferred-decision-fact");
 
-    expect(useStore.getState().findings.find((item) => item.id === "lotlift-wife-after-inference")).toBeUndefined();
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-wife-after-inference")).toMatchObject({ title: "Identify the workflow owner" });
   });
   it.each([
     ["existing CRM", "We already have a CRM for this.", "C1"],
@@ -313,16 +350,16 @@ describe("LotLift fast reply path", () => {
     await manager.flush("lotlift-second-no");
     useStore.setState({ segments: [...useStore.getState().segments, { id: "second-no", source: "them", speaker: 0, isFinal: true, startMs: 2, endMs: 3, text: "No thanks, not interested." }] });
     await Promise.resolve();
-    expect(useStore.getState().findings.find((item) => item.id === "lotlift-second-no")?.evalIds).toEqual(["lotlift-N1"]);
+    expect(useStore.getState().findings.find((item) => item.id === "lotlift-second-no")?.evalIds).toEqual(["lotlift-second-no-close"]);
   });
 
   it.each(["What is this regarding?", "I need to talk to my partner first.", "Would Tuesday morning or Thursday afternoon work for 15 minutes?"])
-  ("refuses absent owner context in a full live call", async (text) => {
+  ("uses a safe discovery response when owner-required context is absent", async (text) => {
     const current = useStore.getState();
     useStore.setState({ meetingStatus: "recording", meetingStartedAt: 21, meetingId: `blocked-${text}`, settings: { ...current.settings, evaluations: evalsFromDefs(buildLotLiftEvaluations()) }, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
     cleanups.push(initLotLiftCoach());
     useStore.setState({ segments: [{ id: `turn-${text}`, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 1, text }] });
     await Promise.resolve();
-    expect(useStore.getState().findings).toEqual([]);
+    expect(useStore.getState().findings).toMatchObject([{ id: `lotlift-turn-${text}`, title: "Identify the workflow owner" }]);
   });
 });

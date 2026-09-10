@@ -7,7 +7,6 @@ import { initFolderRegistry } from "./lib/history/folders";
 import { initDictionary } from "./lib/dictionary";
 import { desktopPlatform } from "./lib/platform";
 import { initZoomShortcuts } from "./lib/zoom";
-import { initSalesPilotCoach } from "./lib/sales/liveCoach";
 import "../sales-profiles/lotlift/profile";
 
 // Mirror webview console.* into the rotating log file (no-op outside Tauri).
@@ -15,9 +14,6 @@ void attachConsoleOnce();
 
 // ⌘/Ctrl + / − / 0 page zoom, per window, persisted across launches.
 initZoomShortcuts();
-
-// The profile-scoped coach observes finalized prospect turns for every live meeting.
-void initSalesPilotCoach();
 
 // Hydrate the shared folder registry (disk-backed; see history/folders.ts).
 // Every window needs it: History (grid + sidebar), Settings + main titlebar

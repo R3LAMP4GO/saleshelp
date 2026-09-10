@@ -167,18 +167,18 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Learn whether coverage is genuinely complete before closing.
 - **Approved strategy:** Ask one brief workflow-coverage question, then respect a second no.
 - **Good examples:**
-  - “Fair enough. Is that because marketplace inquiries are consistently covered, or because it is not a priority right now?”
+  - “Fair enough. Is that because marketplace inquiries are consistently covered, or because it isn’t a priority right now?”
 - **Prohibited behavior:** Do not argue, feature-dump, or ask more than once after a clear second no.
 - **Exit condition:** Coverage is confirmed, or the prospect declines again.
 
 ### objection:no-budget
 - **Intent:** Prospect raises price, affordability, or budget.
 - **When to use:** They mention cost, no budget, or that it is too expensive.
-- **Objective:** Isolate the actual concern before discussing scope or pricing.
-- **Approved strategy:** Ask whether the concern is monthly cost, setup effort, alternatives, or unclear return.
+- **Objective:** Isolate the actual concern while giving the approved introductory price.
+- **Approved strategy:** State the approved first-50-customer price, then ask whether the concern is price, setup effort, alternatives, or unclear value.
 - **Good examples:**
-  - “Is the concern the monthly number, setup effort, comparison with another option, or that the return is not clear enough?”
-- **Prohibited behavior:** Do not invent pricing, guarantee ROI, or negotiate before understanding the concern.
+  - “I hear you. For the first 50 customers, the basic plan is $20 and everything included is $24.99. Is the concern the price itself, the setup effort, another option, or whether the value is clear?”
+- **Prohibited behavior:** Do not alter the approved price, promise the referral offer, guarantee ROI, or negotiate before understanding the concern.
 - **Exit condition:** A specific concern is named, or the prospect declines to continue.
 
 ### objection:existing-crm
@@ -187,7 +187,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Verify whether ownership and after-hours coverage are genuinely complete.
 - **Approved strategy:** Ask where the inquiry lands and whether it is immediately owned.
 - **Good examples:**
-  - “When a marketplace inquiry arrives, does it land directly in that workflow and get owned immediately, or is there still an inbox and handoff?”
+  - “When a marketplace inquiry comes in, does it go straight into that workflow and get picked up right away, or is there still an inbox or handoff first?”
 - **Prohibited behavior:** Do not disparage the current system or claim LotLift replaces it.
 - **Exit condition:** The workflow is confirmed covered, or a specific coverage gap appears.
 
@@ -197,7 +197,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Learn the decision criteria and create a focused joint next step.
 - **Approved strategy:** Ask what the other person needs to know, then invite them to the decision call.
 - **Good examples:**
-  - “What will they want to know before they are comfortable?”
+  - “What will they want to know before they’re comfortable?”
 - **Prohibited behavior:** Do not pressure the prospect to decide without the stakeholder.
 - **Exit condition:** A joint next step is scheduled, or the decision criteria are captured.
 
@@ -217,7 +217,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Capture a real trigger and a specific next action.
 - **Approved strategy:** Ask what changes later, then record a real date or event.
 - **Good examples:**
-  - “What is changing later that would make this a better conversation then?”
+  - “What’s changing later that would make this a better conversation?”
 - **Prohibited behavior:** Do not create a vague follow-up without a date, event, or consent.
 - **Exit condition:** A concrete time or trigger is captured, or the call is closed out.
 
@@ -227,7 +227,7 @@ Each rule uses `### namespace:name` followed by the same seven Markdown fields. 
 - **Objective:** Identify the unresolved decision concern.
 - **Approved strategy:** Ask for the biggest thing they need to feel certain about.
 - **Good examples:**
-  - “What is the biggest thing you want to feel certain about before deciding?”
+  - “What’s the biggest thing you want to feel certain about before deciding?”
 - **Prohibited behavior:** Do not force urgency or pretend uncertainty is resolved.
 - **Exit condition:** The concern and next step are explicit, or the prospect declines.
 

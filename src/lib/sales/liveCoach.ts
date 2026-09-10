@@ -7,6 +7,7 @@ import { analyzeSalesPilotTurn } from "./pilotCoach";
 import type { SalesPilotProfile } from "./salesPilot";
 import { lotLiftSalesPilotProfile } from "../lotlift/playbook";
 import { setSalesPilotLiveStatus } from "./liveStatus";
+import { latestProspectTurn, prospectTurn, roleAwareConversation } from "./speakerRoles";
 
 function selectedPolicy(): SalesPilotProfile | null {
   const metadata = useStore.getState().salesMetadata;
@@ -50,12 +51,15 @@ export function initSalesPilotCoach(turnAnalyzer = analyzeSalesPilotTurn): () =>
   const processed = new Set<string>();
   const doNotContactMeetings = new Set<string>();
   const stages = new Map<string, string>();
-  return useStore.subscribe((state, previous) => {
+  const unsubscribe = useStore.subscribe((state, previous) => {
     const meetingId = (state.meetingStatus === "recording" || state.meetingStatus === "paused") ? state.meetingId : null;
     if (activeMeetingId !== meetingId) { activeMeetingId = meetingId; newestSegmentId = null; processed.clear(); stages.clear(); if (meetingId) doNotContactMeetings.delete(meetingId); else setSalesPilotLiveStatus(null); }
     const policy = selectedPolicy();
-    const segment = state.segments[state.segments.length - 1];
-    if (!meetingId || !policy || doNotContactMeetings.has(meetingId) || !segment || segment === previous.segments[previous.segments.length - 1] || !segment.isFinal || segment.source !== "them" || processed.has(segment.id)) return;
+    const speakerChanged = state.selfSpeakerKey !== previous.selfSpeakerKey;
+    const rawSegment = speakerChanged ? latestProspectTurn(state.segments, state.selfSpeakerKey) : state.segments[state.segments.length - 1];
+    if (!meetingId || !policy || doNotContactMeetings.has(meetingId) || !rawSegment || (!speakerChanged && rawSegment === previous.segments[previous.segments.length - 1]) || processed.has(rawSegment.id)) return;
+    const segment = prospectTurn(rawSegment, state.selfSpeakerKey);
+    if (!segment) return;
     processed.add(segment.id);
     newestSegmentId = segment.id;
     const profileScope = `${meetingId}:${state.salesMetadata?.salesProfileId ?? policy.title}`;
@@ -71,7 +75,7 @@ export function initSalesPilotCoach(turnAnalyzer = analyzeSalesPilotTurn): () =>
       setSalesPilotLiveStatus({ profile: policy.title, stage: currentStage, label: "Do-not-contact recorded" });
       return;
     }
-    const conversation = state.segments.filter((item) => item.isFinal);
+    const conversation = roleAwareConversation(state.segments, state.selfSpeakerKey);
     void turnAnalyzer({ profile: policy, currentStage, turn: segment, conversation, settings: state.settings }).then((result) => {
       if (newestSegmentId !== segment.id) return;
       const nextStage = acceptedNextStage(policy, currentStage, result);
@@ -85,4 +89,8 @@ export function initSalesPilotCoach(turnAnalyzer = analyzeSalesPilotTurn): () =>
       display(segment, policy, nextStage, result.say);
     });
   });
+  return () => {
+    unsubscribe();
+    setSalesPilotLiveStatus(null);
+  };
 }
