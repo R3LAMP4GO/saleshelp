@@ -11,9 +11,10 @@ import {
   subscribeMeetingStartRequest,
 } from "../lib/meeting/requestStart";
 import { availableSalesProfiles, getSalesProfile } from "../lib/sales/profiles";
+import { resolveSalesProfileOverride, type SalesProfileOverride } from "../lib/sales/profileOverrides";
 import { customSalesMeetingMetadata, salesMeetingMetadata, type SalesProspectReference } from "../lib/sales/meeting";
 import { type CustomSalesProfile } from "../lib/sales/customProfiles";
-import { loadCustomSalesProfiles } from "../lib/sales/customProfileStore";
+import { loadCustomSalesProfiles, loadSalesProfileOverrides } from "../lib/sales/customProfileStore";
 import { isProspectDoNotContact, leadMemory, normalizeProspect } from "../lib/sales/leadMemory";
 import "../../sales-profiles/lotlift/profile";
 
@@ -25,12 +26,15 @@ export function StartCallDialog() {
   const [activity, setActivity] = useState<Activity>(null);
   const [profileId, setProfileId] = useState("");
   const [customProfiles, setCustomProfiles] = useState<CustomSalesProfile[]>([]);
+  const [overrides, setOverrides] = useState<SalesProfileOverride[]>([]);
   const [prospect, setProspect] = useState<SalesProspectReference>({});
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState("");
   const profiles = availableSalesProfiles();
   const selectedProfile = getSalesProfile(profileId);
   const selectedCustomProfile = customProfiles.find((profile) => profile.id === profileId);
+  const selectedOverride = selectedProfile ? overrides.find((override) => override.profileId === selectedProfile.id && override.baseVersion === selectedProfile.profile.version) : undefined;
+  const selectedResolvedProfile = selectedProfile ? resolveSalesProfileOverride(selectedProfile, selectedOverride) : undefined;
   const selectedBusinessId = selectedProfile?.businessId ?? selectedCustomProfile?.businessName;
   const salesReady = activity === "sales" && !!selectedBusinessId;
   const normalizedProspect = normalizeProspect(prospect);
@@ -38,7 +42,9 @@ export function StartCallDialog() {
 
   useEffect(() => {
     if (!open) return;
-    loadCustomSalesProfiles().then(setCustomProfiles).catch(() => setStatus("Could not load custom sales profiles."));
+    Promise.all([loadCustomSalesProfiles(), loadSalesProfileOverrides()])
+      .then(([loadedProfiles, loadedOverrides]) => { setCustomProfiles(loadedProfiles); setOverrides(loadedOverrides); })
+      .catch(() => setStatus("Could not load sales profiles."));
   }, [open]);
   const ready = (activity === "general" || salesReady) && !dncBlocked;
 
@@ -54,7 +60,7 @@ export function StartCallDialog() {
     setStarting(true);
     setStatus(t("startCall.starting"));
     const metadata = activity === "sales" && selectedProfile
-      ? salesMeetingMetadata(selectedProfile, normalizedProspect)
+      ? salesMeetingMetadata(selectedProfile, normalizedProspect, undefined, selectedResolvedProfile)
       : activity === "sales" && selectedCustomProfile
         ? customSalesMeetingMetadata(selectedCustomProfile, normalizedProspect)
         : undefined;
@@ -103,7 +109,7 @@ export function StartCallDialog() {
                 {profiles.map((profile) => (
                   <label key={profile.id} className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
                     <input type="radio" name="sales-profile" value={profile.id} checked={profileId === profile.id} onChange={() => setProfileId(profile.id)} />
-                    <span><span className="block text-sm font-medium">{profile.label}</span><span className="text-xs text-muted-foreground">{t("startCall.coldOutbound")}</span></span>
+                    <span><span className="block text-sm font-medium">{profile.label}</span><span className="block text-xs text-muted-foreground">{t("startCall.coldOutbound")} · {t("startCall.snapshotVersion", { version: resolveSalesProfileOverride(profile, overrides.find((override) => override.profileId === profile.id && override.baseVersion === profile.profile.version)).snapshotVersion })}</span><span className="block text-xs text-muted-foreground">{t("startCall.objective", { objective: resolveSalesProfileOverride(profile, overrides.find((override) => override.profileId === profile.id && override.baseVersion === profile.profile.version)).behavior.objective })}</span></span>
                   </label>
                 ))}
                 {customProfiles.map((profile) => (

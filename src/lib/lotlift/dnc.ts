@@ -1,4 +1,5 @@
 import type { LotLiftPlaybookRuleId } from "./playbook";
+import { normalizeForIntent } from "./intentNormalization";
 
 export interface DoNotContactResponse {
   id: "do-not-call";
@@ -8,7 +9,7 @@ export interface DoNotContactResponse {
   rule_id: LotLiftPlaybookRuleId;
 }
 
-const DO_NOT_CONTACT_PATTERN = /\b(?:don['’]t call(?: again)?|do not call|remove (?:me|us)(?: from (?:your )?list)?|take (?:me|us) off (?:your )?list|stop calling)\b/i;
+const DO_NOT_CONTACT_PATTERN = /\b(?:don't call(?: again)?|do not call|remove (?:me|us)(?: from (?:your )?list)?|take (?:me|us) off (?:your )?list|(?:put|place) (?:me|us) on (?:your )?do-not-call list|stop calling)\b/;
 
 /** Safety invariant: this acknowledgement never depends on Markdown parsing or model output. */
 export const DO_NOT_CONTACT_RESPONSE: DoNotContactResponse = {
@@ -21,5 +22,5 @@ export const DO_NOT_CONTACT_RESPONSE: DoNotContactResponse = {
 
 /** Hard rule: this deterministic check must run before contextual analysis. */
 export function isDoNotContactRequest(text: string): boolean {
-  return DO_NOT_CONTACT_PATTERN.test(text);
+  return DO_NOT_CONTACT_PATTERN.test(normalizeForIntent(text));
 }

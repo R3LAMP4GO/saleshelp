@@ -1,5 +1,5 @@
 import { customSalesProfileSnapshot, type CustomSalesProfile, type CustomSalesProfileSnapshot } from "./customProfiles";
-import type { SalesMotion, SalesProfile } from "./profiles";
+import { resolveSalesProfile, type ResolvedSalesProfile, type SalesMotion, type SalesProfile } from "./profiles";
 
 export interface SalesProspectReference {
   name?: string;
@@ -18,6 +18,8 @@ export interface SalesMeetingMetadata {
   playbookVersion: string;
   productFactsVersion: string;
   evaluationVersion: string;
+  /** Immutable effective built-in behavior, including any local override. */
+  resolvedProfile?: ResolvedSalesProfile;
   /** Immutable local source retained with a custom-profile meeting. */
   customProfile?: CustomSalesProfileSnapshot;
   prospect?: SalesProspectReference;
@@ -32,7 +34,8 @@ export function salesRecommendationMetadata(metadata: SalesMeetingMetadata): Sal
   return policy;
 }
 
-export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString()): SalesMeetingMetadata {
+export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString(), resolvedProfile = resolveSalesProfile(profile)): SalesMeetingMetadata {
+  if (resolvedProfile.profileId !== profile.id || resolvedProfile.baseVersion !== profile.profile.version) throw new Error("Resolved profile does not match the selected profile.");
   return {
     salesProfileId: profile.id,
     businessId: profile.businessId,
@@ -41,6 +44,7 @@ export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesPros
     playbookVersion: profile.playbook.version,
     productFactsVersion: profile.productFacts.version,
     evaluationVersion: profile.evaluation.version,
+    resolvedProfile,
     ...(prospect && Object.values(prospect).some(Boolean) ? { prospect } : {}),
     selectedAt,
   };

@@ -13,13 +13,13 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("LotLift Ollama bounded selection", () => {
   it("requires native structured candidate selection and multiple prospect citations", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: { content: JSON.stringify({ event_type: "discovery", selected_move_id: "identify-owner", spoken_response: "Who owns paid online inquiry response there?", grounding_segment_ids: ["ollama-turn"] }) } }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: { content: JSON.stringify({ selected_move_id: "identify-owner", spoken_response: "Who owns paid online inquiry response there?", grounding_segment_ids: ["ollama-turn"] }) } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("ollama"), turn, conversation, settings });
     expect(result).toMatchObject({ source: "model", move_id: "identify-owner", selected_move: { id: "identify-owner" } });
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body);
     expect(request).toMatchObject({ model: "qwen3:4b", think: false, stream: false, keep_alive: "30m", options: { num_predict: 160 } });
-    expect(request.format.properties).toEqual(expect.objectContaining({ event_type: expect.any(Object), selected_move_id: expect.any(Object), grounding_segment_ids: expect.any(Object), spoken_response: expect.any(Object) }));
+    expect(request.format.properties).toEqual({ selected_move_id: expect.any(Object), grounding_segment_ids: expect.any(Object), spoken_response: expect.any(Object) });
     const prompt = request.messages[1].content as string;
     const payload = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only.")));
     expect(payload).toMatchObject({ latest_prospect_turn: { id: "ollama-turn" }, sales_script_stage: expect.any(Object), eligible_sales_moves: [expect.objectContaining({ id: "identify-owner", rule_ids: expect.arrayContaining(["discovery:ownership"]), approved_strategy: expect.any(String) })] });
@@ -31,7 +31,7 @@ describe("LotLift Ollama bounded selection", () => {
 
   it("keeps price output free of commercial claims while permitting contextual wording", async () => {
     const priceTurn: TranscriptSegment = { ...turn, id: "price-turn", text: "This costs too much." };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: { content: JSON.stringify({ event_type: "price_objection", selected_move_id: "price-isolation", spoken_response: "I hear you. Is the concern the spend itself or whether the value is clear?", grounding_segment_ids: ["price-turn"] }) } }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: { content: JSON.stringify({ selected_move_id: "price-isolation", spoken_response: "I hear you. Is the concern the spend itself or whether the value is clear?", grounding_segment_ids: ["price-turn"] }) } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("ollama-price"), turn: priceTurn, conversation: [priceTurn], settings });
     expect(result).toMatchObject({ source: "model", move_id: "price-isolation" });

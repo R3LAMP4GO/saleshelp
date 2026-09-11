@@ -16,19 +16,20 @@ describe("LotLift cold-call turn engine", () => {
   it("renders the approved opening for a greeting with only verified context", () => {
     const result = selectLotLiftColdCallCard(turn("Hello"), callState(), [], "Isaiah");
     expect(result).toMatchObject({ intent: "greeting", card: { id: "O1" } });
-    expect(result?.response).toContain("Hey Maya—it’s Isaiah, founder of LotLift.");
-    expect(result?.response).toContain("Northside Motors");
+    expect(result?.response).toContain("Hi Maya, it’s Isaiah from LotLift.");
+    expect(result?.response).toContain("30 seconds");
   });
 
-  it("answers identity without exposing an ownership question", () => {
-    const result = selectLotLiftColdCallCard(turn("Who is this?"), callState(), [], "Isaiah");
+  it.each(["Who is this?", "who is this", "Who's this?", "Who’s this?", "WHO'S THIS?", "Who are you?", "  Who’s   this?  "])("routes identity punctuation variants to O2: %s", (text) => {
+    const result = selectLotLiftColdCallCard(turn(text), callState(), [], "Isaiah");
+    expect(result).toMatchObject({ intent: "identity", card: { id: "O2" } });
     expect(result?.response).toBe("“It’s Isaiah, founder of LotLift.”");
   });
 
-  it("uses approved problem framing for a purpose question, not gatekeeper copy", () => {
-    const result = selectLotLiftColdCallCard(turn("What's this about?"), callState(), [], "Isaiah");
-    expect(result?.card.id).toBe("O3");
-    expect(result?.response).toContain("The pattern I’m trying to understand");
+  it.each(["What's this regarding?", "What’s this regarding?", "What is this regarding?", "What's this about?", "What’s this about?", "Why are you calling?"])("routes clear purpose variants to O3: %s", (text) => {
+    const result = selectLotLiftColdCallCard(turn(text), callState(), [], "Isaiah");
+    expect(result).toMatchObject({ intent: "purpose", card: { id: "O3" } });
+    expect(result?.response).toContain("who handles your online leads");
   });
 
   it("uses the context-free permission card when configured profile facts are unavailable", () => {
@@ -41,6 +42,6 @@ describe("LotLift cold-call turn engine", () => {
     const state = callState();
     expect(selectLotLiftColdCallCard(turn("Sure, go ahead"), state, [], "Isaiah")?.card.id).toBe("O3");
     expect(selectLotLiftColdCallCard(turn("How can I help?"), state, [], "Isaiah")?.card.id).toBe("O3");
-    expect(selectLotLiftColdCallCard(turn("What’s this about?"), newLotLiftCallState("empty"), [], null)?.card.id).toBe("O0");
+    expect(selectLotLiftColdCallCard(turn("What’s this about?"), newLotLiftCallState("empty"), [], null)?.card.id).toBe("O3");
   });
 });

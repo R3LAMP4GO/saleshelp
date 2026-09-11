@@ -4,12 +4,14 @@ import { initLotLiftCoach } from "./coach";
 import { LotLiftCallStateManager } from "./callState";
 import type { LotLiftTurnIntelligence } from "./turnIntelligence";
 import { useStore } from "../store";
+import { getLotLiftLiveStatus, setLotLiftLiveStatus } from "./liveStatus";
 
 describe("LotLift Coach immediate path", () => {
   const cleanups: Array<() => void> = [];
   afterEach(() => {
     cleanups.splice(0).forEach((cleanup) => cleanup());
     useStore.setState({ meetingStatus: "stopped", segments: [], findings: [], findingSolutions: {}, solutionFindingId: null, selfSpeakerKey: null });
+    setLotLiftLiveStatus("Listening");
   });
 
   it("activates SalesPilot from the selected profile without LotLift evaluations", async () => {
@@ -21,6 +23,7 @@ describe("LotLift Coach immediate path", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(analyzer).toHaveBeenCalledOnce();
     expect(useStore.getState().findings).toHaveLength(1);
+    expect(getLotLiftLiveStatus()).toBe("Suggestion ready");
   });
 
   it("renders one fallback then ignores a stale model completion", async () => {

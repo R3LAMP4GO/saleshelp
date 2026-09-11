@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateObjectResilient } from "../ai/generate";
-import { PROVIDER_BY_ID } from "../ai/providers";
+import { isReasoningModel, PROVIDER_BY_ID } from "../ai/providers";
+import { hasProviderKey } from "../ai/settings";
 import { OLLAMA_REALTIME_KEEP_ALIVE } from "../ai/ollamaResidency";
 import type { Settings, TranscriptSegment } from "../types";
 import { type CallStateEvent, type LotLiftCallState } from "./callState";
@@ -11,14 +12,18 @@ import { lotLiftMoveCandidates, type LotLiftNextMove } from "./nextMove";
 import {
   buildLotLiftResponseCompositionContext,
   compositionPrompt,
+  observationExtractionPrompt,
   LOTLIFT_RESPONSE_COMPOSER_SYSTEM,
+  lotLiftObservationExtractionSchema,
   lotLiftResponseCompositionSchema,
+  validateLotLiftObservationExtraction,
   validateLotLiftResponseComposition,
   type LotLiftResponseComposerModel,
   type LotLiftResponseComposerOutput,
   type LotLiftSpokenResponseRejectionSubreason,
 } from "./responseComposer";
 import type { LotLiftPlaybookRuleId } from "./playbook";
+import type { ResolvedSalesProfile } from "../sales/profiles";
 
 /** The remote default; local Ollama uses its bounded persisted setting instead. */
 export const LOTLIFT_TURN_TIMEOUT_MS = 2_000;
@@ -44,9 +49,14 @@ type LotLiftComposerDiagnostic = {
   request_origin?: string | null;
   provider?: string;
   model?: string | null;
+  reasoning_effort?: string | null;
   response_char_count?: number;
   finish_reason?: string;
   content_is_complete_json?: boolean;
+  profile_id?: string;
+  profile_snapshot_version?: string;
+  response_mode?: string;
+  model_used?: boolean;
 };
 
 function logLotLiftComposerDiagnostic(record: LotLiftComposerDiagnostic): void {
@@ -143,20 +153,42 @@ async function defaultOllamaModel(settings: Settings, request: { system: string;
   const content = body.message?.content ?? "";
   onResponse({ response_char_count: content.length, finish_reason: finishReason(body), content_is_complete_json: isCompleteJson(content) });
   if (!body.message?.content) throw new Error("Ollama returned no structured composition");
-  return lotLiftResponseCompositionSchema(context).parse(JSON.parse(body.message.content));
+  const output = JSON.parse(body.message.content);
+  // Older Ollama models may retain fields from the former response contract.
+  // Ignore only those non-decision fields before parsing the shared schema.
+  const normalizedOutput = output && typeof output === "object" && !Array.isArray(output)
+    ? (() => {
+      const { event_type: _eventType, observations: _observations, ...decision } = output as Record<string, unknown>;
+      return decision;
+    })()
+    : output;
+  return lotLiftResponseCompositionSchema(context).parse(normalizedOutput);
 }
 
-async function defaultModel(settings: Settings, request: { system: string; prompt: string; signal: AbortSignal }, context: ReturnType<typeof buildLotLiftResponseCompositionContext>, onOllamaResponse: (metadata: OllamaResponseMetadata) => void): Promise<LotLiftTurnModelOutput> {
+async function defaultModel(settings: Settings, request: { system: string; prompt: string; signal: AbortSignal }, context: ReturnType<typeof buildLotLiftResponseCompositionContext>, onOllamaResponse: (metadata: OllamaResponseMetadata) => void, onHostedResponse: () => void): Promise<LotLiftTurnModelOutput> {
   if (settings.llmProviders.realtime === "ollama") return defaultOllamaModel(settings, request, context, onOllamaResponse);
   const { object } = await generateObjectResilient({ settings, workload: "realtime", schema: lotLiftResponseCompositionSchema(context), system: request.system, prompt: request.prompt, abortSignal: request.signal, maxOutputTokens: 240, singleAttempt: true });
+  onHostedResponse();
   return object;
 }
 
+/** Best-effort memory enrichment runs after Say This Now is already visible. */
+export async function extractLotLiftObservations(input: { settings: Settings; state: LotLiftCallState; turn: TranscriptSegment; conversation: readonly TranscriptSegment[]; signal?: AbortSignal }): Promise<CallStateEvent[]> {
+  if (!hasProviderKey(input.settings, "realtime")) return [];
+  const context = buildLotLiftResponseCompositionContext({ state: input.state, turn: input.turn, conversation: input.conversation, candidates: lotLiftMoveCandidates({ state: input.state, turn: input.turn, conversation: input.conversation }), responsePolicy: "composable", settings: input.settings });
+  try {
+    const { object } = await generateObjectResilient({ settings: input.settings, workload: "realtime", schema: lotLiftObservationExtractionSchema(context), system: LOTLIFT_RESPONSE_COMPOSER_SYSTEM, prompt: observationExtractionPrompt(context), abortSignal: input.signal, maxOutputTokens: 120, singleAttempt: true });
+    return validateLotLiftObservationExtraction(object, context) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** Produces guarded spoken copy or falls back to the locally approved response verbatim. */
-export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: TranscriptSegment; conversation?: readonly TranscriptSegment[]; recent?: readonly TranscriptSegment[]; relevantRuleIds?: readonly LotLiftPlaybookRuleId[]; approvedProductFacts?: readonly import("./contextPack").LotLiftApprovedProductFact[]; settings?: Settings; model?: LotLiftTurnModel; timeoutMs?: number; signal?: AbortSignal }): Promise<LotLiftTurnIntelligence> {
+export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: TranscriptSegment; conversation?: readonly TranscriptSegment[]; recent?: readonly TranscriptSegment[]; relevantRuleIds?: readonly LotLiftPlaybookRuleId[]; approvedProductFacts?: readonly import("./contextPack").LotLiftApprovedProductFact[]; settings?: Settings; model?: LotLiftTurnModel; timeoutMs?: number; signal?: AbortSignal; resolvedProfile?: ResolvedSalesProfile }): Promise<LotLiftTurnIntelligence> {
   const { state, turn, settings, model, signal } = opts;
   const conversation = (opts.conversation ?? opts.recent ?? [turn]).filter((segment) => segment.isFinal);
-  const candidates = lotLiftMoveCandidates({ state, turn, conversation, approvedRepIdentity: settings?.userName });
+  const candidates = lotLiftMoveCandidates({ state, turn, conversation, approvedRepIdentity: settings?.userName, resolvedProfile: opts.resolvedProfile });
   const deterministicMove = candidates[0]!;
   const suppliedRuleIds = opts.relevantRuleIds ?? [];
 
@@ -167,7 +199,7 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   const email = prospectEmailCapture(turn);
   if (email === "confirm") return { event_type: "discovery", confidence: 1, needs_coaching: true, playbook_rule_ids: [], state_events: [], selected_move: null, move_id: null, source: "hard-rule" };
   if (email) return { event_type: "discovery", confidence: 1, needs_coaching: false, playbook_rule_ids: [], state_events: [email], selected_move: null, move_id: null, source: "hard-rule" };
-  if (deterministicMove.source === "terminal-policy") return result(deterministicMove, deterministicMove.state_events, "hard-rule", suppliedRuleIds);
+  if (deterministicMove.source === "terminal-policy" || deterministicMove.response_mode !== "compose") return result(deterministicMove, deterministicMove.state_events, "hard-rule", suppliedRuleIds);
 
   const eligibleCandidates = candidates;
   const fallbackMove = eligibleCandidates[0]!;
@@ -176,12 +208,12 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
     approvedProductFacts: opts.approvedProductFacts, settings,
   });
-  if (!model && !settings) return result(fallbackMove, [], "fallback", ruleIds, "unconfigured");
-  if (signal?.aborted) return result(fallbackMove, [], "fallback", ruleIds, "cancelled");
+  if (!model && (!settings || !hasProviderKey(settings, "realtime"))) return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "unconfigured");
+  if (signal?.aborted) return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "cancelled");
 
   const controller = new AbortController();
   const startedAt = performance.now();
-  const deadlineMs = resolveLotLiftTurnDeadline(settings, opts.timeoutMs);
+  const deadlineMs = resolveLotLiftTurnDeadline(settings, opts.timeoutMs ?? opts.resolvedProfile?.behavior.runtimePreferences.timeoutMs);
   const provider = settings?.llmProviders.realtime;
   const providerInfo = provider ? PROVIDER_BY_ID[provider] : undefined;
   const diagnosticBase = {
@@ -190,7 +222,12 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     option_id: fallbackMove.id,
     provider: provider ?? (model ? "injected-model" : "unconfigured"),
     model: provider ? settings?.models[provider].realtime ?? null : null,
+    reasoning_effort: provider && settings && isReasoningModel(settings.models[provider].realtime) ? settings.reasoningEffort.realtime : null,
     request_origin: providerInfo?.baseURL ? new URL(providerInfo.baseURL).origin : null,
+    profile_id: opts.resolvedProfile?.profileId,
+    profile_snapshot_version: opts.resolvedProfile?.snapshotVersion,
+    response_mode: fallbackMove.response_mode,
+    model_used: true,
   };
   logLotLiftComposerDiagnostic({ event: "request-start", elapsed_ms: 0, ...diagnosticBase });
   let deadlineExpired = false;
@@ -202,7 +239,10 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   const onOllamaResponse = (metadata: OllamaResponseMetadata) => {
     logLotLiftComposerDiagnostic({ event: "response-received", elapsed_ms: Math.round(performance.now() - startedAt), ...metadata, ...diagnosticBase });
   };
-  const run = model ? model(request) : defaultModel(settings!, request, context, onOllamaResponse);
+  const onHostedResponse = () => {
+    logLotLiftComposerDiagnostic({ event: "response-received", elapsed_ms: Math.round(performance.now() - startedAt), ...diagnosticBase });
+  };
+  const run = model ? model(request) : defaultModel(settings!, request, context, onOllamaResponse, onHostedResponse);
   try {
     const output = await Promise.race([run, abortResult]);
     const modelElapsed = Math.round(performance.now() - startedAt);
@@ -211,7 +251,7 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     logLotLiftComposerDiagnostic({ event: "validation", elapsed_ms: Math.round(performance.now() - startedAt), parsed_output_valid: Boolean(validation.result), validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
     if (!validation.result) {
       logLotLiftComposerDiagnostic({ event: "fallback", elapsed_ms: Math.round(performance.now() - startedAt), fallback_reason: "invalid-output", validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
-      return result(fallbackMove, [], "fallback", ruleIds, "invalid-output");
+      return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "invalid-output");
     }
     const validated = validation.result;
     logLotLiftComposerDiagnostic({ event: "complete", elapsed_ms: Math.round(performance.now() - startedAt), parsed_output_valid: true, validator_rejection_code: null, validator_rejection_subreason: null, ...diagnosticBase });
@@ -235,7 +275,7 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
       error_message: sanitizeModelErrorMessage(error),
       ...diagnosticBase,
     });
-    return result(fallbackMove, [], "fallback", ruleIds, fallbackReason);
+    return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, fallbackReason);
   } finally {
     clearTimeout(deadline);
     signal?.removeEventListener("abort", abortFromCaller);

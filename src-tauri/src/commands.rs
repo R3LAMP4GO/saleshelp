@@ -98,6 +98,7 @@ pub fn write_folders(app: AppHandle, json: String) -> Result<(), String> {
 }
 
 const SALES_PROFILES_FILE: &str = "sales-profiles.json";
+const SALES_PROFILE_OVERRIDES_FILE: &str = "sales-profile-overrides.json";
 const MAX_SALES_PROFILES: usize = 100;
 const MAX_SALES_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_SALES_PLAYBOOK_CHARS: usize = 200_000;
@@ -113,6 +114,23 @@ struct CustomSalesProfileRecord {
     playbook_text: String,
     compiled_profile: Option<serde_json::Value>,
     created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SalesProfileMoveOverrideRecord {
+    script: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SalesProfileOverrideRecord {
+    profile_id: String,
+    base_version: String,
+    objective: Option<String>,
+    moves: Option<std::collections::BTreeMap<String, SalesProfileMoveOverrideRecord>>,
+    runtime_preferences: Option<serde_json::Value>,
     updated_at: String,
 }
 
@@ -139,6 +157,74 @@ fn normalized_sales_field(value: &str) -> String {
 fn valid_sales_field(value: &str) -> bool {
     let normalized = value.trim();
     !normalized.is_empty() && normalized.chars().count() <= MAX_SALES_FIELD_CHARS
+}
+
+fn valid_override_text(value: &str, max: usize) -> bool {
+    let normalized = value.trim();
+    !normalized.is_empty()
+        && normalized.chars().count() <= max
+        && !normalized.contains(['\0', '<', '>'])
+}
+
+fn valid_profile_override_id(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some(first) if first.is_ascii_lowercase())
+        && value.len() <= 80
+        && chars.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
+}
+
+fn validate_sales_profile_overrides(
+    overrides: &[SalesProfileOverrideRecord],
+) -> Result<(), String> {
+    if overrides.len() > MAX_SALES_PROFILES {
+        return Err("Too many sales profile overrides.".into());
+    }
+    let mut keys = std::collections::HashSet::new();
+    for override_record in overrides {
+        if !valid_profile_override_id(&override_record.profile_id)
+            || !valid_override_text(&override_record.base_version, 80)
+            || !valid_override_text(&override_record.updated_at, 80)
+            || !keys.insert(format!(
+                "{}:{}",
+                override_record.profile_id, override_record.base_version
+            ))
+        {
+            return Err("A sales profile override has invalid required fields.".into());
+        }
+        if override_record
+            .objective
+            .as_ref()
+            .is_some_and(|value| !valid_override_text(value, 500))
+        {
+            return Err("A sales profile override has an invalid objective.".into());
+        }
+        if let Some(moves) = &override_record.moves {
+            if moves.len() > 80
+                || moves.iter().any(|(id, value)| {
+                    !valid_profile_override_id(id)
+                        || value
+                            .script
+                            .as_ref()
+                            .is_some_and(|script| !valid_override_text(script, 500))
+                })
+            {
+                return Err("A sales profile override has an invalid move script.".into());
+            }
+        }
+        if override_record
+            .runtime_preferences
+            .as_ref()
+            .is_some_and(|value| {
+                !value.is_object()
+                    || serde_json::to_string(value).map_or(true, |json| json.len() > 500)
+            })
+        {
+            return Err("A sales profile override has invalid runtime preferences.".into());
+        }
+    }
+    Ok(())
 }
 
 fn validate_sales_profiles(profiles: &[CustomSalesProfileRecord]) -> Result<(), String> {
@@ -243,6 +329,29 @@ pub fn write_sales_profiles(app: AppHandle, json: String) -> Result<(), String> 
         .map_err(|_| "Could not encode sales profiles.".to_string())?;
     atomic_write_file(
         &app_config_file(&app, SALES_PROFILES_FILE)?,
+        &contents,
+        || Ok(()),
+    )
+}
+
+#[tauri::command]
+pub fn read_sales_profile_overrides(app: AppHandle) -> Result<String, String> {
+    match std::fs::read_to_string(app_config_file(&app, SALES_PROFILE_OVERRIDES_FILE)?) {
+        Ok(contents) => Ok(contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("[]".into()),
+        Err(_) => Err("Could not read sales profile overrides.".into()),
+    }
+}
+
+#[tauri::command]
+pub fn write_sales_profile_overrides(app: AppHandle, json: String) -> Result<(), String> {
+    let overrides: Vec<SalesProfileOverrideRecord> = serde_json::from_str(&json)
+        .map_err(|_| "Sales profile overrides are malformed.".to_string())?;
+    validate_sales_profile_overrides(&overrides)?;
+    let contents = serde_json::to_vec_pretty(&overrides)
+        .map_err(|_| "Could not encode sales profile overrides.".to_string())?;
+    atomic_write_file(
+        &app_config_file(&app, SALES_PROFILE_OVERRIDES_FILE)?,
         &contents,
         || Ok(()),
     )

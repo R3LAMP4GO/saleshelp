@@ -8,6 +8,7 @@ const profile: SalesProfile = {
   productFacts: { version: "3", status: "approved" }, evaluation: { version: "4", status: "approved" },
   vocabulary: [], qualificationFields: [], prohibitedClaims: [],
   responsePolicy: { allowCitedProductFacts: false, allowDeterministicFallback: true }, productFactEntries: [],
+  behavior: { version: 1, objective: "Learn whether the workflow is relevant.", moves: [{ id: "O1", title: "Opening", goal: "Open the call.", script: "Hello.", responseMode: "verbatim", maxWords: 3, variables: [] }], discovery: [], objections: [], closeRequirements: ["Close respectfully."], claimConstraints: ["Do not make unsupported claims."], runtimePreferences: { modelBehavior: "bounded" } },
 };
 
 it("looks up registered profiles and persists immutable call metadata", () => {

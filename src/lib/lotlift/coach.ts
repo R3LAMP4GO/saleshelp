@@ -4,13 +4,14 @@ import { LotLiftCallStateManager, newLotLiftCallState, reduceLotLiftCallState, t
 import { lotLiftDecisionContextChange, lotLiftDecisionContextEvent } from "./decisionContext";
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "./dnc";
 import type { ApprovedLotLiftResponse } from "./objections";
-import { analyzeLotLiftTurn } from "./turnIntelligence";
+import { analyzeLotLiftTurn, extractLotLiftObservations } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
 import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
 import { salesRecommendationMetadata } from "../sales/meeting";
 import { latestProspectTurn, prospectTurn, roleAwareConversation } from "../sales/speakerRoles";
 import { selectLotLiftNextMove } from "./nextMove";
+import type { ResolvedSalesProfile } from "../sales/profiles";
 
 type CoachEvent = { response: Omit<ApprovedLotLiftResponse, "tactic_id">; state: CallStateEvent };
 
@@ -42,14 +43,16 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
   let activeCallId: string | null = null;
   let newestProspectSegmentId: string | null = null;
   let localSelectionAbort: AbortController | null = null;
+  let sessionProfile: ResolvedSalesProfile | undefined;
   const processed = new Set<string>();
   const unsubscribe = useStore.subscribe((state, previous) => {
     const meetingActive = state.meetingStatus === "recording" || state.meetingStatus === "paused";
     const selectedProfile = !salesProfileId || state.salesMetadata?.salesProfileId === salesProfileId;
     // Legacy callers retain their historic LotLift key; profile-selected calls use the UUID unchanged.
     const callId = meetingActive && state.meetingId && selectedProfile ? salesProfileId ? state.meetingId : `lotlift-${state.meetingId}` : null;
-    if (activeCallId && activeCallId !== callId) { localSelectionAbort?.abort(); localSelectionAbort = null; void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; processed.clear(); }
+    if (activeCallId && activeCallId !== callId) { localSelectionAbort?.abort(); localSelectionAbort = null; void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; sessionProfile = undefined; processed.clear(); }
     if (!callId) return;
+    if (activeCallId !== callId) sessionProfile = state.salesMetadata?.resolvedProfile;
     activeCallId = callId;
     callStates.activate(callId);
     const speakerChanged = state.selfSpeakerKey !== previous.selfSpeakerKey;
@@ -83,7 +86,7 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
       return;
     }
-    const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation, approvedRepIdentity: state.settings.userName });
+    const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation, approvedRepIdentity: state.settings.userName, resolvedProfile: sessionProfile });
     const fallbackResponse = moveResponse(fallbackMove);
     if (fallbackMove.source === "terminal-policy") {
       const events = [...decisionEvents, ...fallbackMove.state_events];
@@ -103,11 +106,12 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
       if (newestProspectSegmentId !== segment.id) return;
       try {
         markLotLiftTurn(segment.id, "modelStart");
-        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, conversation, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings, signal: controller.signal });
+        const result = await turnAnalyzer({ state: callStates.stateFor(callId)!, turn: segment, conversation, relevantRuleIds: deterministic ? [deterministic.response.rule_id] : undefined, settings: state.settings, signal: controller.signal, resolvedProfile: sessionProfile });
         markLotLiftTurn(segment.id, "modelFirstResponse");
         markLotLiftTurn(segment.id, "modelComplete");
         if (newestProspectSegmentId !== segment.id || localSelectionAbort !== controller || result.fallback_reason === "cancelled") return;
-        if (result.source === "fallback") setLotLiftLiveStatus("Fallback used");
+        // The safe card was already visible; an async miss is diagnostic-only to the rep.
+        if (result.source === "fallback") setLotLiftLiveStatus(result.fallback_reason === "unconfigured" ? "API key missing — fallback used" : "Suggestion ready");
         const finalEvents = result.source === "fallback" ? fallbackMove.state_events : result.state_events;
         if (finalEvents.length && callStates.record(callId, `${segment.id}:model`, finalEvents)) void callStates.flush(callId).then(() => {
           markLotLiftTurn(segment.id, "persisted");
@@ -119,6 +123,11 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
             ? { ...moveResponse(result.selected_move), provenance: "safe-fallback" }
             : deterministicResponse;
         display(segment, contextualResponse, false, decisionEvidence ?? undefined);
+        // Memory is deliberately best-effort and cannot delay or replace Say This Now.
+        void extractLotLiftObservations({ settings: state.settings, state: callStates.stateFor(callId)!, turn: segment, conversation, signal: controller.signal }).then((events) => {
+          if (!events.length || controller.signal.aborted || newestProspectSegmentId !== segment.id) return;
+          if (callStates.record(callId, `${segment.id}:memory`, events)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
+        });
       } catch {
         if (controller.signal.aborted || newestProspectSegmentId !== segment.id || localSelectionAbort !== controller) return;
         setLotLiftLiveStatus("Local model unavailable");

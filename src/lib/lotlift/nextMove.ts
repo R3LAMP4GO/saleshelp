@@ -9,9 +9,16 @@ import {
 import { LOTLIFT_MOVE_RULES, LOTLIFT_POLICY_TACTICS, lotLiftPolicyContext, lotLiftTacticForMove, missingLotLiftTacticContext, type LotLiftClaimClass, type LotLiftPolicyTacticId } from "./policyPack";
 import { lotLiftPlaybookRule, type LotLiftPlaybookRuleId } from "./playbook";
 import { retrieveApprovedLotLiftResponse } from "./objections";
-import { lotLiftIdentityResponse } from "./turnEngine";
+import { selectLotLiftColdCallCard } from "./turnEngine";
+import { liveSpeechRejection } from "./responseComposer";
+import { applyResolvedLotLiftMove, type ResolvedLotLiftScriptContext } from "./profileAdapter";
+import type { ResolvedSalesProfile } from "../sales/profiles";
+import { normalizeForIntent } from "./intentNormalization";
+import { assimilatePendingAnswer } from "./pendingAnswer";
+import { reduceLotLiftCallState } from "./callState";
 
 export type LotLiftMoveSource = "approved-move" | "terminal-policy";
+export type LotLiftResponseMode = "verbatim" | "template" | "compose";
 
 export interface LotLiftNextMove {
   id: string;
@@ -20,6 +27,8 @@ export interface LotLiftNextMove {
   /** Deterministic wording shown before local inference completes. */
   response: string;
   fallback_response: string;
+  response_mode: LotLiftResponseMode;
+  max_words?: number;
   stage: LotLiftConversationStage;
   source: LotLiftMoveSource;
   tactic_id: LotLiftPolicyTacticId;
@@ -44,18 +53,23 @@ const AUTHORITY = /\b(?:i\s+(?:make|own|handle)\s+(?:that|the)\s+decision|my\s+d
 const OWNER = /\b(?:i['’]m|i\s+am)\s+(?:the\s+)?(?:owner|gm|general\s+manager|sales\s+manager|internet\s+manager|bdc\s+manager)\b/i;
 const PRICE_CONCERN = /\b(?:too expensive|sounds? expensive|too much money|no budget|can(?:not|'t) afford|costs? too much|(?:price|cost) (?:feels?|sounds?|is) (?:too )?high|how much(?: is it)?|what does (?:it|that) cost|pricing)\b/i;
 const VALUE_UNCERTAINTY = /\b(?:value (?:is )?(?:not |isn['’]?t )?clear|whether (?:the )?value is clear|not sure (?:it['’]?s|it is|this is) worth)\b/i;
+const CRM_MENTION = /\b(?:use|using)\s+([A-Z][A-Za-z0-9-]{2,})(?:\s+CRM)?\b/;
+const AFTER_HOURS_GAP = /\b(?:after hours|overnight).{0,80}\b(?:sit|wait|unworked).{0,80}\b(?:morning|until)/i;
 
 function boundedEvidence(turn: TranscriptSegment): string { return turn.text.trim().slice(0, 160); }
 function progress(move_id: string, discovery_dimension?: LotLiftDiscoveryDimension, substantive_refusal = false): CallStateEvent {
   return { type: "coaching-progress", move_id, discovery_dimension, substantive_refusal };
 }
-function move(id: string, title: string, goal: string, response: string, stage: LotLiftConversationStage, source: LotLiftMoveSource, state_events: CallStateEvent[], discovery_dimension?: LotLiftDiscoveryDimension, candidate_reason = "deterministic policy route"): LotLiftNextMove {
-  const tactic_id = lotLiftTacticForMove(id);
+function baseMove(id: string, title: string, goal: string, response: string, stage: LotLiftConversationStage, source: LotLiftMoveSource, state_events: CallStateEvent[], discovery_dimension?: LotLiftDiscoveryDimension, candidate_reason = "deterministic policy route", profile?: ResolvedSalesProfile, context: ResolvedLotLiftScriptContext = {}): LotLiftNextMove {
+  const configured = applyResolvedLotLiftMove({ id, title, goal, response, fallback_response: response, response_mode: source === "terminal-policy" || ["O2", "O3", "second-no-close"].includes(id) ? "verbatim" : "compose", stage, source, tactic_id: lotLiftTacticForMove(id), rule_ids: [], allowed_claim_classes: [], candidate_reason, approved_strategy: "", prohibited_behavior: "", state_events, discovery_dimension }, profile, context);
+  const speechRejection = liveSpeechRejection(configured.response, id, configured.max_words);
+  if (speechRejection) throw new Error(`LotLift move ${id} violates the live-speech contract: ${speechRejection}`);
+  const tactic_id = configured.tactic_id;
   const tactic = LOTLIFT_POLICY_TACTICS[tactic_id];
   const rule_ids = LOTLIFT_MOVE_RULES[id as keyof typeof LOTLIFT_MOVE_RULES];
   if (!rule_ids?.length) throw new Error(`LotLift move ${id} is missing policy rules.`);
   const primaryRule = lotLiftPlaybookRule(rule_ids[0]);
-  return { id, title, goal, response, fallback_response: response, stage, source, tactic_id, rule_ids, allowed_claim_classes: tactic.allowed_claim_classes, candidate_reason, approved_strategy: primaryRule.approved_strategy, prohibited_behavior: primaryRule.prohibited_behavior, state_events, discovery_dimension };
+  return { ...configured, tactic_id, rule_ids, allowed_claim_classes: tactic.allowed_claim_classes, approved_strategy: primaryRule.approved_strategy, prohibited_behavior: primaryRule.prohibited_behavior };
 }
 
 /**
@@ -67,36 +81,48 @@ export type LotLiftMoveCandidateInput = {
   turn: TranscriptSegment;
   conversation: readonly TranscriptSegment[];
   approvedRepIdentity?: string | null;
+  resolvedProfile?: ResolvedSalesProfile;
 };
 
 export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonly LotLiftMoveCandidate[] {
   const { state, turn } = input;
   const text = turn.text.trim();
-  const stage = deriveLotLiftConversationStage(state);
+  const intentText = normalizeForIntent(text);
+  const pendingEvents = assimilatePendingAnswer(state, turn);
+  const routingState = pendingEvents.reduce(reduceLotLiftCallState, state);
+  const scriptContext = { representativeName: input.approvedRepIdentity, firstName: routingState.contact_name.value, dealership: routingState.dealership.value };
+  const move = (id: string, title: string, goal: string, response: string, moveStage: LotLiftConversationStage, source: LotLiftMoveSource, stateEvents: CallStateEvent[], discoveryDimension?: LotLiftDiscoveryDimension, candidateReason = "deterministic policy route") =>
+    baseMove(id, title, goal, response, moveStage, source, stateEvents, discoveryDimension, candidateReason, input.resolvedProfile, scriptContext);
+  const stage = deriveLotLiftConversationStage(routingState);
   const evidence = { segment_id: turn.id, text: boundedEvidence(turn) };
-  const facts: CallStateEvent[] = [];
+  const facts: CallStateEvent[] = [...pendingEvents];
   if (OWNER.test(text)) facts.push({ type: "capture", field: "workflow_owner", fact: { value: text, status: "verified", evidence } });
   if (AUTHORITY.test(text)) facts.push({ type: "capture", field: "authority", fact: { value: text, status: "verified", evidence } });
-  if (PAIN.test(text)) facts.push({ type: "append", field: "pain_points", fact: { value: text, status: "verified", evidence } });
+  const crm = text.match(CRM_MENTION)?.[1];
+  if (crm) facts.push({ type: "capture", field: "current_solution", fact: { value: crm, status: "verified", evidence } });
+  if (PAIN.test(text) || AFTER_HOURS_GAP.test(text)) facts.push({ type: "append", field: "pain_points", fact: { value: text, status: "verified", evidence } });
+  if (AFTER_HOURS_GAP.test(text)) facts.push({ type: "capture", field: "after_hours_process", fact: { value: text, status: "verified", evidence } });
   const one = (...args: Parameters<typeof move>) => [move(...args)];
   const hasFact = (items: readonly { value: string | null }[]) => items.some((fact) => Boolean(fact.value));
   const hasPain = hasFact(state.pain_points) || Boolean(state.after_hours_process.value) || Boolean(state.visibility_process.value);
   const hasStakeholder = hasFact(state.decision_stakeholders) || hasFact(state.stakeholders);
   const priceWasIsolated = input.conversation.some((segment) => segment.isFinal && segment.source === "me" && /monthly spend|setup effort|another option|feels worth|concern the spend/i.test(segment.text));
 
-  if (stage === "terminal" || state.do_not_contact) return one("terminal-close", "Close the call", "Honor the prospect's terminal decision.", "Understood. I’ll leave it there. Thanks for your time.", "terminal", "terminal-policy", [progress("terminal-close")]);
-  if (stage === "disqualified") return one("disqualified-close", "Not a fit", "Close without pursuing a meeting.", "Understood. I do not want to pretend this is the right fit. Thanks for your time.", "disqualified", "terminal-policy", [progress("disqualified-close")]);
-  if (ABUSE.test(text)) return one("abuse-close", "End respectfully", "Do not pursue a meeting after abuse without explicit re-engagement.", "Understood. I’ll leave it there. Thanks for your time.", "terminal", "terminal-policy", [progress("abuse-close", undefined, true)]);
-  if (HARD_INTEGRATION.test(text)) return one("hard-integration-close", "Not a fit", "A required direct CRM/DMS integration disqualifies this workflow.", "Understood. If direct CRM or DMS integration is required, I should not pretend this is the right fit. Thanks for your time.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Required direct CRM/DMS integration", status: "verified", evidence } }, progress("hard-integration-close")]);
-  if (UNSUPPORTED_FIT.test(text)) return one("unsupported-fit-close", "Not a fit", "Do not push a meeting for an unsupported lead workflow.", "That may mean LotLift is not worth adding. I’ll leave it there. Thanks for your time.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Unsupported online inquiry workflow", status: "verified", evidence } }, progress("unsupported-fit-close")]);
-  if (REFUSAL.test(text) && state.substantive_refusal_count >= 1) return one("second-no-close", "Close the call", "Respect the second substantive refusal.", "Understood. I’ll leave it there. Thanks for your time.", "terminal", "terminal-policy", [progress("second-no-close", undefined, true)]);
-  if (REFUSAL.test(text)) {
-    const rule = lotLiftPlaybookRule("objection:not-interested");
-    return one("first-refusal", "Clarify the first refusal", "Ask one brief coverage question, then respect a second no.", rule.good_examples[0]!, stage, "approved-move", [...facts, progress("first-refusal", undefined, true)], undefined, "first substantive refusal receives the canonical one-question response");
+  if (stage === "terminal" || state.do_not_contact) return one("terminal-close", "Close the call", "Honor the prospect's terminal decision.", "Understood. Thank you.", "terminal", "terminal-policy", [progress("terminal-close")]);
+  if (stage === "disqualified") return one("disqualified-close", "Not a fit", "Close without pursuing a meeting.", "Understood. Thank you.", "disqualified", "terminal-policy", [progress("disqualified-close")]);
+  if (ABUSE.test(text)) return one("abuse-close", "End respectfully", "Do not pursue a meeting after abuse without explicit re-engagement.", "Understood. Thank you.", "terminal", "terminal-policy", [progress("abuse-close", undefined, true)]);
+  if (HARD_INTEGRATION.test(text)) return one("hard-integration-close", "Not a fit", "A required direct CRM/DMS integration disqualifies this workflow.", "Understood. Thank you.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Required direct CRM/DMS integration", status: "verified", evidence } }, progress("hard-integration-close")]);
+  if (UNSUPPORTED_FIT.test(text)) return one("unsupported-fit-close", "Not a fit", "Do not push a meeting for an unsupported lead workflow.", "Understood. Thank you.", "disqualified", "terminal-policy", [{ type: "capture", field: "disqualification_reason", fact: { value: "Unsupported online inquiry workflow", status: "verified", evidence } }, progress("unsupported-fit-close")]);
+  if (REFUSAL.test(intentText) && state.substantive_refusal_count >= 1) return one("second-no-close", "Close the call", "Respect the second substantive refusal.", "Understood. Thank you.", "terminal", "terminal-policy", [progress("second-no-close", undefined, true)]);
+  if (REFUSAL.test(intentText)) {
+    return one("first-refusal", "Clarify the first refusal", "Ask one brief coverage question, then respect a second no.", "Totally fair. Before I go, how are paid online inquiries covered after hours?", stage, "approved-move", [...facts, progress("first-refusal", undefined, true)], undefined, "first substantive refusal receives the canonical one-question response");
   }
 
-  const identityResponse = lotLiftIdentityResponse(turn, state, input.approvedRepIdentity);
-  if (identityResponse) return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", identityResponse, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
+  const isIdentityQuestion = /\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/.test(intentText);
+  const isPurposeQuestion = /\b(?:what(?:'s| is) this (?:about|regarding)|why (?:are you|did you)(?: call| calling)|how can i help)\b/.test(intentText);
+  const coldCallCard = isIdentityQuestion || isPurposeQuestion ? selectLotLiftColdCallCard(turn, state, input.conversation, input.approvedRepIdentity) : null;
+  if (coldCallCard?.card.id === "O2") return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", coldCallCard.response, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
+  if (coldCallCard?.card.id === "O3") return one("O3", "Purpose and permission", "State the truthful purpose, then learn one workflow fact.", coldCallCard.response, "relevance-discovery", "approved-move", [progress("O3")], undefined, "explicit purpose question follows identity or permission");
 
   const routedObjection = retrieveApprovedLotLiftResponse(text, input.conversation.filter((segment) => segment.source === "them" && segment.id !== turn.id).map((segment) => segment.text));
   if (routedObjection && !["price", "price-with-spouse", "not-interested"].includes(routedObjection.id)) {

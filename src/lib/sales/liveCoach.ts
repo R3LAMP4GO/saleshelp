@@ -1,3 +1,4 @@
+import "../../../sales-profiles/lotlift/profile";
 import { useStore } from "../store";
 import type { TimelineEvent, TranscriptSegment } from "../types";
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "../lotlift/dnc";
@@ -5,7 +6,7 @@ import { canonicalProspectId, leadMemory } from "./leadMemory";
 import { salesRecommendationMetadata } from "./meeting";
 import { analyzeSalesPilotTurn } from "./pilotCoach";
 import type { SalesPilotProfile } from "./salesPilot";
-import { lotLiftSalesPilotProfile } from "../lotlift/playbook";
+import { getSalesProfile, resolveSalesProfile } from "./profiles";
 import { setSalesPilotLiveStatus } from "./liveStatus";
 import { latestProspectTurn, prospectTurn, roleAwareConversation } from "./speakerRoles";
 
@@ -13,7 +14,17 @@ function selectedPolicy(): SalesPilotProfile | null {
   const metadata = useStore.getState().salesMetadata;
   if (!metadata) return null;
   if (metadata.customProfile) return metadata.customProfile.compiledProfile ?? null;
-  return metadata.salesProfileId === "lotlift-cold-outbound" ? lotLiftSalesPilotProfile : null;
+  const profile = getSalesProfile(metadata.salesProfileId);
+  if (!profile) return null;
+  const resolved = metadata.resolvedProfile ?? resolveSalesProfile(profile);
+  return {
+    version: 1,
+    title: profile.label,
+    objective: resolved.behavior.objective,
+    stages: [{ id: "opening", title: "opening", guidance: resolved.behavior.objective }, { id: "discovery", title: "discovery", guidance: resolved.behavior.discovery.map((stage) => stage.guidance).join("\n") || resolved.behavior.objective }, ...resolved.behavior.discovery.map((stage) => ({ id: stage.id, title: stage.id.replace(/-/g, " "), guidance: stage.guidance }))],
+    objectionRules: resolved.behavior.objections,
+    productFacts: profile.productFactEntries.map((fact) => ({ id: fact.id, statement: fact.statement, category: "capability" as const })),
+  };
 }
 
 function acceptedNextStage(profile: SalesPilotProfile, currentStage: string, result: { current_stage: string; next_stage: string }): string | null {

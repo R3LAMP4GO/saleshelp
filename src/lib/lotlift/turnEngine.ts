@@ -2,6 +2,7 @@ import type { TranscriptSegment } from "../types";
 import type { LotLiftCallState } from "./callState";
 import type { LotLiftPlaybookRuleId } from "./playbook";
 import type { LotLiftScriptCard } from "./scriptCards";
+import { normalizeForIntent } from "./intentNormalization";
 
 export type LotLiftColdCallIntent = "greeting" | "identity" | "purpose" | "permission" | "brush-off" | "ownership" | "discovery" | "objection" | "stakeholder" | "scheduling";
 export type LotLiftColdCallStage = "opening" | "discovery" | "qualification" | "close" | "terminal";
@@ -44,9 +45,9 @@ const card = (id: string, trigger: string, sentence: string, objective: string, 
 
 export const LOTLIFT_COLD_CALL_CARDS = [
   card("O0", "Greeting / permission", "“Hi—this is LotLift. I’m calling about how paid online inquiries are handled. Do you have 30 seconds for one quick question?”", "Earn permission without claiming unverified identity or dealership context.", "discovery:ownership"),
-  card("O1", "Greeting", "“Hey [first name]—it’s [configured rep name], founder of LotLift. I was looking at [dealership]’s used inventory on Cars.com, CarGurus, or AutoTrader. I’ll be straight with you, this is a cold call, but it’s a specific one. Can I take 30 seconds to tell you why I called?”", "Earn permission to ask one discovery question.", "discovery:ownership"),
+  card("O1", "Greeting", "“Hi [first name], it’s [configured rep name] from LotLift. May I take 30 seconds for one question about paid online inquiries?”", "Earn permission to ask one discovery question.", "discovery:ownership"),
   card("O2", "Who is this?", "“It’s [configured rep name], founder of LotLift.”", "Identify the caller truthfully and wait for their purpose question.", "discovery:ownership"),
-  card("O3", "Purpose / permission", "“The pattern I’m trying to understand is this: a shopper sends a paid online inquiry late in the day, it lands in the shared inbox or gets handed around, everybody assumes somebody else has it, and by the next morning that shopper has messaged a few other stores. I’m not saying that happens at [dealership]—I do not know your process yet. LotLift is built to help independent dealers create a coverage workflow around approved inbound lead sources, so the team can see who owns the lead and move it into a consistent response and appointment process. Is that a process you feel really confident in today?”", "Learn one workflow fact; do not schedule yet.", "discovery:lead-source"),
+  card("O3", "Purpose / permission", "“I’m calling about who handles your online leads there. Is that you?”", "Learn one workflow fact; do not schedule yet.", "discovery:lead-source"),
 ] as const;
 
 function contextFromState(state: LotLiftCallState, representativeName: string | null | undefined): LotLiftApprovedCallContext {
@@ -80,14 +81,14 @@ export function coldCallStage(conversation: readonly TranscriptSegment[]): LotLi
 }
 
 export function lotLiftIdentityResponse(turn: TranscriptSegment, state: LotLiftCallState, approvedRepIdentity: string | null | undefined): string | null {
-  if (turn.source !== "them" || !turn.isFinal || !/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/i.test(turn.text)) return null;
+  if (turn.source !== "them" || !turn.isFinal || !/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/.test(normalizeForIntent(turn.text))) return null;
   const card = LOTLIFT_COLD_CALL_CARDS.find((candidate) => candidate.id === "O2")!;
   return renderLotLiftColdCallCard(card, contextFromState(state, approvedRepIdentity));
 }
 
 export function selectLotLiftColdCallCard(turn: TranscriptSegment, state: LotLiftCallState, conversation: readonly TranscriptSegment[], approvedRepIdentity: string | null | undefined): { card: LotLiftScriptCard; intent: LotLiftColdCallIntent; stage: LotLiftColdCallStage; response: string } | null {
   if (turn.source !== "them" || !turn.isFinal) return null;
-  const text = turn.text.trim();
+  const text = normalizeForIntent(turn.text);
   const stage = coldCallStage(conversation);
   const context = contextFromState(state, approvedRepIdentity);
   const choose = (id: "O0" | "O1" | "O2" | "O3", intent: LotLiftColdCallIntent) => {
@@ -98,7 +99,7 @@ export function selectLotLiftColdCallCard(turn: TranscriptSegment, state: LotLif
   const contextualOrDefault = (id: "O1" | "O2" | "O3", intent: LotLiftColdCallIntent) => choose(id, intent) ?? choose("O0", intent);
   if (/^(?:hello|hi|hey|good (?:morning|afternoon))\b[!. ]*$/i.test(text)) return contextualOrDefault("O1", "greeting");
   if (/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/i.test(text)) return contextualOrDefault("O2", "identity");
-  if (/\b(?:what(?:['’]s| is) this about|why (?:are you|did you) call)\b/i.test(text)) return contextualOrDefault("O3", "purpose");
+  if (/\b(?:what(?:'s| is) this (?:about|regarding)|why (?:are you|did you)(?: call| calling))\b/.test(text)) return contextualOrDefault("O3", "purpose");
   if (/\bhow can I help\b/i.test(text)) return contextualOrDefault("O3", "purpose");
   if (/\b(?:yes|sure|go ahead|you have (?:30|thirty) seconds)\b/i.test(text) && stage === "opening") return contextualOrDefault("O3", "permission");
   return null;

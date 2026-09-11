@@ -1,4 +1,4 @@
-export type LotLiftLiveStatus = "Listening" | "Thinking" | "Suggestion ready" | "No intervention needed" | "Local model unavailable" | "Fallback used";
+export type LotLiftLiveStatus = "Listening" | "Thinking" | "Suggestion ready" | "No intervention needed" | "Local model unavailable" | "Fallback used" | "API key missing — fallback used";
 
 const target = new EventTarget();
 let status: LotLiftLiveStatus = "Listening";

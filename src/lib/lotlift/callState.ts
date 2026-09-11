@@ -55,6 +55,16 @@ export type LotLiftListField =
   | "decision_blockers"
   | "decision_stakeholders";
 
+export interface LotLiftPendingAnswer {
+  rep_segment_id: string;
+  profile_id: string;
+  profile_snapshot_version: string;
+  move_id: string;
+  kind: "confirmation" | "free-text" | "entity";
+  target_field: LotLiftScalarField;
+  created_revision: number;
+}
+
 export type LotLiftConversationStage =
   | "owner-identification"
   | "relevance-discovery"
@@ -108,6 +118,7 @@ export interface LotLiftCallState {
   /** Deterministic coach metadata; never model-authored. */
   last_discovery_dimension: LotLiftDiscoveryDimension | null;
   last_move_id: string | null;
+  pending_answer: LotLiftPendingAnswer | null;
   substantive_refusal_count: number;
 }
 
@@ -154,6 +165,7 @@ export function newLotLiftCallState(callId: string): LotLiftCallState {
     selected_objection_route: unknownLotLiftField(),
     last_discovery_dimension: null,
     last_move_id: null,
+    pending_answer: null,
     substantive_refusal_count: 0,
   };
 }
@@ -164,6 +176,7 @@ export type CallStateEvent =
   | { type: "recurring-objection"; fact: LotLiftFieldValue<string> }
   | { type: "decision-context"; readiness?: LotLiftFieldValue<string>; blockers: LotLiftFieldValue<string>[]; stakeholders: LotLiftFieldValue<string>[]; selected_objection_route?: LotLiftFieldValue<string> }
   | { type: "coaching-progress"; move_id: string; discovery_dimension?: LotLiftDiscoveryDimension; substantive_refusal?: boolean }
+  | { type: "pending-answer"; pending: LotLiftPendingAnswer | null }
   | { type: "do-not-contact"; at: string; evidence: LotLiftEvidence };
 
 const scalarFields: readonly LotLiftScalarField[] = [
@@ -245,6 +258,7 @@ export function deriveLotLiftConversationStage(state: LotLiftCallState): LotLift
 /** Deterministic reducer: verified prospect facts resist later inferred replacements. */
 export function reduceLotLiftCallState(state: LotLiftCallState, event: CallStateEvent): LotLiftCallState {
   switch (event.type) {
+    case "pending-answer": return { ...state, pending_answer: event.pending, revision: state.revision + 1 };
     case "do-not-contact": return state.do_not_contact
       ? state
       : { ...state, do_not_contact: true, dnc_at: event.at, dnc_evidence: event.evidence };

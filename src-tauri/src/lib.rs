@@ -151,6 +151,8 @@ pub fn run() {
             commands::write_folders,
             commands::read_sales_profiles,
             commands::write_sales_profiles,
+            commands::read_sales_profile_overrides,
+            commands::write_sales_profile_overrides,
             commands::read_sales_playbook_source,
             commands::read_log_tail,
             commands::write_session,

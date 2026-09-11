@@ -31,6 +31,8 @@ describe("LotLift approved objection retrieval", () => {
 
   it("detects direct DNC requests and returns the fixed acknowledgement", () => {
     expect(isDoNotContactRequest("Don't call again.")).toBe(true);
+    expect(isDoNotContactRequest("Don’t call again.")).toBe(true);
+    expect(isDoNotContactRequest("Put me on your do-not-call list.")).toBe(true);
     expect(DO_NOT_CONTACT_RESPONSE.response).toBe("Absolutely. I’ll mark this number do-not-call. Thanks for letting me know.");
   });
 

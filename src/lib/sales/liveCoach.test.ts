@@ -26,7 +26,7 @@ it("coaches the built-in LotLift profile", async () => {
   cleanup = initSalesPilotCoach(async () => ({ needs_coaching: true, say: "LotLift helps teams create a workflow for approved inbound lead sources.", current_stage: "opening", next_stage: "discovery", customer_evidence: [], product_claims: [{ sentence: "LotLift helps teams create a workflow for approved inbound lead sources.", product_fact_id: "approved-inbound-workflow" }], source: "model" }));
   useStore.setState({ segments: [{ id: "lotlift-turn", source: "them", speaker: 0, text: "Tell me more.", isFinal: true, startMs: 0, endMs: 10 }] });
   await Promise.resolve();
-  expect(useStore.getState().findings).toMatchObject([{ id: "sales-pilot-lotlift-turn", title: "LotLift sales playbook" }]);
+  expect(useStore.getState().findings).toMatchObject([{ id: "sales-pilot-lotlift-turn", title: "LotLift — Cold Outbound" }]);
 });
 
 it("excludes the selected speaker and coaches another finalized diarized turn", async () => {

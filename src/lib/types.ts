@@ -227,8 +227,8 @@ export type LlmProvider =
   | "openrouter"
   | "parley";
 
-/** Reasoning depth for reasoning-capable models (e.g. Groq gpt-oss). */
-export type ReasoningEffort = "low" | "medium" | "high";
+/** Reasoning depth for reasoning-capable models; `none` minimizes realtime latency. */
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
 /**
  * LLM workload lanes (#131). Realtime = everything a human is waiting on

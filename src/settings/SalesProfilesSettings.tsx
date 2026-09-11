@@ -5,6 +5,7 @@ import { type CustomSalesProfile, validateCustomSalesProfile } from "../lib/sale
 import { loadCustomSalesProfiles, pickSalesPlaybook, saveCustomSalesProfiles } from "../lib/sales/customProfileStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BuiltinSalesProfileEditor } from "./BuiltinSalesProfileEditor";
 
 export function SalesProfilesSettings() {
   const [profiles, setProfiles] = useState<CustomSalesProfile[]>([]);
@@ -63,7 +64,9 @@ export function SalesProfilesSettings() {
   }
 
   return (
-    <div className="flex max-w-xl flex-col gap-3">
+    <div className="flex max-w-2xl flex-col gap-6">
+      <BuiltinSalesProfileEditor />
+      <div className="border-t pt-6">
       <p className="text-[11px] leading-relaxed text-muted-foreground">
         Markdown only. Required: # title, ## Call objective, ## Script stages, ## Objection rules, and ## Product facts. Facts use ### product:kebab-id, **Statement:** one sentence, and **Category:** capability, pricing, integration, security, roi, or guarantee.
       </p>
@@ -82,6 +85,7 @@ export function SalesProfilesSettings() {
           <Button size="icon" variant="ghost" disabled={busy} className="size-8 text-muted-foreground hover:text-destructive" aria-label={`Delete ${profile.businessName} ${profile.modeName}`} title="Delete profile" onClick={() => void removeProfile(profile)}><Trash2 className="size-3.5" /></Button>
         </div>
       ))}
+      </div>
     </div>
   );
 }
