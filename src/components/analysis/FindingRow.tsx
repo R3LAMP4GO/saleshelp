@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatClock } from "../../lib/store";
 import { useI18n } from "../../i18n";
@@ -31,22 +30,24 @@ export function findingTitleClass(event: TimelineEvent): string {
 
 /**
  * One finding in the right-hand list. Clicking the row HIGHLIGHTS the finding and
- * seeks to its moment — it does NOT open the reply window (that would spend a
- * generation on every click). The "how to reply" button is the explicit, separate
- * affordance that opens the standalone window.
+ * seeks to its moment. When an automatic coach reply is available, it is rendered
+ * directly in the card so the salesperson never has to open another window.
  */
 export function FindingRow({
   event,
   selected,
   onSelect,
   onOpenSolution,
+  reply,
 }: Readonly<{
   event: TimelineEvent;
   selected: boolean;
   /** Row click: highlight + seek (no window). */
   onSelect: (event: TimelineEvent) => void;
-  /** "how to reply" button: open the reply window (the only generation trigger). */
-  onOpenSolution: (event: TimelineEvent) => void;
+  /** Manual solution window remains available outside the live coach feed. */
+  onOpenSolution?: (event: TimelineEvent) => void;
+  /** Completed automatic coach response for this finding. */
+  reply?: string;
 }>) {
   const { t } = useI18n();
   const evalNames = useEvalNames();
@@ -117,14 +118,20 @@ export function FindingRow({
           )}
         </span>
       </button>
-      <button
-        type="button"
-        onClick={() => onOpenSolution(event)}
-        className="mb-2 ml-8 inline-flex items-center gap-1 rounded text-[11px] font-medium text-primary hover:underline"
-      >
-        <ChevronRight className="size-3" />
-        {t("solution.show")}
-      </button>
+      {reply ? (
+        <section className="mx-2 mb-2 rounded-md border border-primary/50 px-2.5 py-2" aria-label="Say this">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Say this</p>
+          <p className="mt-1 text-sm leading-5">{reply}</p>
+        </section>
+      ) : onOpenSolution ? (
+        <button
+          type="button"
+          onClick={() => onOpenSolution(event)}
+          className="mb-2 ml-8 inline-flex rounded text-[11px] font-medium text-primary hover:underline"
+        >
+          {t("solution.show")}
+        </button>
+      ) : null}
     </li>
   );
 }

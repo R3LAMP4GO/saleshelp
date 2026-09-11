@@ -8,7 +8,7 @@ import { type CallStateEvent, type LotLiftCallState } from "./callState";
 import { isDoNotContactRequest } from "./dnc";
 import { resolveLotLiftTurnDeadline } from "./localDeadline";
 import { log } from "../log";
-import { lotLiftMoveCandidates, type LotLiftNextMove } from "./nextMove";
+import { deriveLotLiftCurrentTurnState, lotLiftMoveCandidates, type LotLiftNextMove } from "./nextMove";
 import {
   buildLotLiftResponseCompositionContext,
   compositionPrompt,
@@ -195,7 +195,8 @@ export async function extractLotLiftObservations(input: { settings: Settings; st
 export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: TranscriptSegment; conversation?: readonly TranscriptSegment[]; recent?: readonly TranscriptSegment[]; relevantRuleIds?: readonly LotLiftPlaybookRuleId[]; approvedProductFacts?: readonly import("./contextPack").LotLiftApprovedProductFact[]; settings?: Settings; model?: LotLiftTurnModel; timeoutMs?: number; signal?: AbortSignal; resolvedProfile?: ResolvedSalesProfile }): Promise<LotLiftTurnIntelligence> {
   const { state, turn, settings, model, signal } = opts;
   const conversation = (opts.conversation ?? opts.recent ?? [turn]).filter((segment) => segment.isFinal);
-  const candidates = lotLiftMoveCandidates({ state, turn, conversation, approvedRepIdentity: settings?.userName, resolvedProfile: opts.resolvedProfile });
+  const currentTurnState = deriveLotLiftCurrentTurnState(state, turn);
+  const candidates = lotLiftMoveCandidates({ state, turn, conversation, currentTurnState, approvedRepIdentity: settings?.userName, resolvedProfile: opts.resolvedProfile });
   const deterministicMove = candidates[0]!;
   const suppliedRuleIds = opts.relevantRuleIds ?? [];
 
@@ -212,10 +213,10 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   const fallbackMove = eligibleCandidates[0]!;
   const ruleIds = [...new Set([...suppliedRuleIds, ...eligibleCandidates.flatMap((candidate) => candidate.rule_ids)])].slice(0, 3) as LotLiftPlaybookRuleId[];
   const contextualStartedAt = performance.now();
-  const turnDirectives = Object.fromEntries(eligibleCandidates.map((candidate) => [candidate.id, buildLotLiftTurnDirective({ state, turn, candidate, resolvedProfile: opts.resolvedProfile })]));
+  const turnDirectives = Object.fromEntries(eligibleCandidates.map((candidate) => [candidate.id, buildLotLiftTurnDirective({ state: currentTurnState.state, turn, candidate, resolvedProfile: opts.resolvedProfile })]));
   const context = buildLotLiftResponseCompositionContext({
-    state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
-    approvedProductFacts: opts.approvedProductFacts, settings, resolvedProfile: opts.resolvedProfile, turnDirectives,
+    state: currentTurnState.state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
+    approvedProductFacts: opts.approvedProductFacts ?? opts.resolvedProfile?.approvedProductFacts, settings, resolvedProfile: opts.resolvedProfile, turnDirectives,
   });
   const contextBuildMs = Math.round(performance.now() - contextualStartedAt);
   if (!model && (!settings || !hasProviderKey(settings, "realtime"))) return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "unconfigured");

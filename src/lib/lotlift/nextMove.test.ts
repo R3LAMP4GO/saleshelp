@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
 import { lotLiftMoveCandidates, selectLotLiftNextMove } from "./nextMove";
 import type { TranscriptSegment } from "../types";
+import { LOTLIFT_COLD_OUTBOUND_PROFILE } from "../../../sales-profiles/lotlift/profile";
+import { resolveSalesProfile } from "../sales/profiles";
 
 const turn = (text: string, id = "turn"): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 100 });
 const verified = (value: string, id = "evidence") => ({ value, status: "verified" as const, evidence: { segment_id: id, text: value } });
@@ -37,6 +39,78 @@ describe("LotLift next moves", () => {
     expect(candidates[0]).toMatchObject({ id: "O2", source: "approved-move" });
     expect(candidates[0]?.response).toContain("Alex");
     expect(candidates[0]?.response).not.toMatch(/\?|15-minute|price/i);
+  });
+
+  it.each([
+    "My team already ignores half the tools we buy.",
+    "We have too much turnover to train another system.",
+    "We tried software like this before and nobody used it.",
+  ])("routes staff-adoption safely: %s", (text) => {
+    let state = newLotLiftCallState("staff-adoption");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    const move = select(state, text);
+    expect(move).toMatchObject({ id: "staff-adoption", source: "approved-move" });
+    expect(move.response).toMatch(/what made|what would/i);
+    expect(move.response).not.toMatch(/automate|guarantee|results|replace|monitoring capability/i);
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+  });
+
+  it.each(["AI is all hype. We don't need another gimmick.", "Is this going to replace my BDC people?"])("routes AI skepticism safely: %s", (text) => {
+    let state = newLotLiftCallState("ai-skepticism");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    const move = select(state, text);
+    expect(move).toMatchObject({ id: "ai-skepticism", source: "approved-move" });
+    expect(move.response).toMatch(/purpose|workflow/i);
+    expect(move.response).not.toMatch(/replace|guarantee|results|security|perform/i);
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+  });
+
+  it("routes long-tenure software to a profile-governed contextual response", () => {
+    let state = newLotLiftCallState("tenure-crm");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    state = reduceLotLiftCallState(state, { type: "capture", field: "current_solution", fact: verified("VinSolutions", "crm") });
+    const prospect = turn("We've used VinSolutions for 15 years. Why would we change now?");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer", source: "approved-move" });
+    expect(move.response).not.toMatch(/replace|better than|after hours/i);
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+  });
+
+  it("uses contextual response without restarting O3 after ownership is verified", () => {
+    let state = newLotLiftCallState("owner-known");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("That would be me.", "owner") });
+    const prospect = turn("Guys, why are you calling?");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "contextual-response", source: "approved-move" });
+    expect(move.response).not.toMatch(/is that you|who handles|who owns/i);
+  });
+
+  it.each([
+    ["AI product question", "Do you use AI to respond to online leads?"],
+    ["random direct question", "What makes this useful?"],
+    ["usefulness after discovery", "How would that actually help us?"],
+  ])("routes %s to contextual response after stronger policy routes decline", (_name, text) => {
+    let state = newLotLiftCallState(`contextual-${text}`);
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    const prospect = turn(text);
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer" });
+    expect(move.response).not.toMatch(/who (?:owns|handles)|is that you/i);
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+  });
+
+  it("keeps fresh purpose questions on the O3 card", () => {
+    const prospect = turn("Why are you calling?");
+    const move = selectLotLiftNextMove({ state: newLotLiftCallState("fresh-why"), turn: prospect, conversation: [prospect], approvedRepIdentity: "Alex", resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "O3", source: "approved-move" });
+  });
+
+  it("keeps an existing CRM route after ownership is verified", () => {
+    let state = newLotLiftCallState("crm-known");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    const prospect = turn("We already use VinSolutions CRM.");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "crm-coverage", source: "approved-move" });
   });
 
   it("clarifies a direct price question before quoting or negotiating", () => {
@@ -101,6 +175,39 @@ describe("LotLift next moves", () => {
     expect(move.response).not.toContain("15-minute");
   });
 
+  it("selects the profile-governed generic move before the ordinary stage fallback", () => {
+    let state = newLotLiftCallState("generic-context");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const prospect = turn("We get a mix from the usual sites.", "neutral-context");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: profile });
+
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer", source: "approved-move", candidate_reason: expect.stringContaining("contextual concern") });
+    expect(move.response).toBe("I want to understand that before assuming anything. What would be most useful to clarify?");
+    expect(move.response.split(/[.!?]+/).filter(Boolean)).toHaveLength(2);
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+    expect(move.response).not.toMatch(/automation|results|monitoring|staff replacement|pricing|integration|security|guarantee/i);
+    expect(move.state_events).toContainEqual(expect.objectContaining({ type: "coaching-progress", move_id: "contextual-response" }));
+  });
+
+  it.each([
+    ["trust concern", "My salespeople will think we're spying on them.", "contextual-response"],
+    ["AI skepticism", "AI is all hype. We don't need another gimmick.", "ai-skepticism"],
+    ["required integration", "We need a direct DMS integration before anything else.", "hard-integration-close"],
+    ["security", "We need security details.", "security-authorization"],
+    ["provider authorization", "That provider is not authorized to allow this.", "security-authorization"],
+    ["competitor", "We use another provider.", "competitor-criteria"],
+  ])("keeps %s ahead of the generic contextual move", (_name, text, id) => {
+    let state = newLotLiftCallState(`priority-${id}`);
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const prospect = turn(text, `priority-${id}`);
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: profile });
+
+    expect(move.id).toBe(id);
+    expect(move.id).not.toBe("generic-contextual-discovery");
+  });
+
   it("advances unmatched discovery turns without repeating a dimension", () => {
     let state = newLotLiftCallState("discovery");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("Internet manager") });
@@ -131,9 +238,11 @@ describe("LotLift next moves", () => {
     expect(second).toMatchObject({ id: "second-no-close", source: "terminal-policy" });
   });
 
-  it("uses guided objection discovery for a genuinely unmatched concern", () => {
-    const move = select(newLotLiftCallState("novel-concern"), "I worry the staff will think this is spying on them.");
-    expect(move).toMatchObject({ id: "guided-objection-discovery", tactic_id: "concern-isolation", source: "approved-move" });
+  it("routes a novel spying concern to contextual response", () => {
+    const state = newLotLiftCallState("novel-concern");
+    const prospect = turn("I worry the staff will think this is spying on them.");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer", source: "approved-move" });
     expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
     expect(move.response).not.toMatch(/prove|guarantee|15-minute|price/i);
   });
@@ -151,7 +260,7 @@ describe("LotLift next moves", () => {
     ["Call me later.", "timing-follow-up", "objection:call-later"],
     ["We need to think about it.", "decision-criteria", "objection:need-to-think"],
     ["We already have a BDC.", "existing-workflow-coverage", "objection:existing-crm"],
-    ["We are happy with what we have.", "existing-workflow-coverage", "objection:status-quo"],
+    ["We are happy with what we have.", "identify-owner", "discovery:ownership"],
     ["We are too small.", "fit-source-volume", "objection:team-size"],
     ["We use another provider.", "competitor-criteria", "objection:competitor"],
     ["We need security details.", "security-authorization", "objection:data-security"],

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
 import { assimilatePendingAnswer, pendingAnswerFromExecutedMove } from "./pendingAnswer";
+import { lotLiftMoveCandidates } from "./nextMove";
 
 const repMove = { id: "O3", expectedAnswer: { kind: "confirmation" as const, targetField: "workflow_owner" } };
 const prospect = (id: string, text: string) => ({ id, text, source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 1 });
@@ -20,6 +21,14 @@ describe("pending profile answers", () => {
     const state = events.reduce(reduceLotLiftCallState, pending());
     expect(state.workflow_owner).toMatchObject({ value: "sales manager", status: "verified" });
     expect(state.pending_answer).toBeNull();
+  });
+
+  it("captures a natural owner confirmation and clears the pending question", () => {
+    const events = assimilatePendingAnswer(pending(), prospect("owner", "Oh, that would be me."));
+    const state = events.reduce(reduceLotLiftCallState, pending());
+    expect(state.workflow_owner).toMatchObject({ value: "Oh, that would be me.", status: "verified" });
+    expect(state.pending_answer).toBeNull();
+    expect(lotLiftMoveCandidates({ state, turn: prospect("owner", "Oh, that would be me."), conversation: [] })[0]?.id).toBe("lead-source");
   });
 
   it("captures free-text after-hours evidence only for an executed question", () => {

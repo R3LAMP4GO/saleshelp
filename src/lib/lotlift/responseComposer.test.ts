@@ -48,6 +48,11 @@ it("never injects profile methodology into live system instructions", () => {
   expect(LOTLIFT_RESPONSE_COMPOSER_SYSTEM).not.toContain("DISARM");
 });
 
+it("rejects stale contextual copy that ignores the profile strategy", () => {
+  const composition = validateLotLiftResponseComposition({ selected_move_id: candidates[0]!.id, grounding_segment_ids: [turn.id], spoken_response: "Understood. Could you email a proposal?" }, context());
+  expect(composition).toMatchObject({ result: null, rejection_code: "spoken-response", rejection_subreason: "objective-mismatch" });
+});
+
 it("cannot use methodology as grounding or memory evidence", () => {
   const composition = validateLotLiftResponseComposition({ selected_move_id: candidates[0]!.id, grounding_segment_ids: ["cold-calling-sucks:3"], spoken_response: "That makes sense. What concerns you most?" }, context());
   expect(composition).toMatchObject({ result: null, rejection_code: "schema" });

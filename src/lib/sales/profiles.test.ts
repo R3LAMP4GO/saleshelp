@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getSalesProfile, isApproved, registerSalesProfile, type SalesProfile } from "./profiles";
+import { getSalesProfile, isApproved, registerSalesProfile, resolveSalesProfile, type SalesProfile } from "./profiles";
 import { salesMeetingMetadata, salesRecommendationMetadata } from "./meeting";
 
 const profile: SalesProfile = {
@@ -23,6 +23,16 @@ it("keeps prospect identifiers out of recommendation audit metadata", () => {
   const metadata = salesMeetingMetadata(profile, { phone: "+15551234567", crmLeadId: "lead-9" });
   expect(salesRecommendationMetadata(metadata)).not.toHaveProperty("prospect");
   expect(salesRecommendationMetadata(metadata)).toMatchObject({ salesProfileId: profile.id, playbookVersion: "2" });
+});
+
+it("snapshots only approved cited product facts", () => {
+  const withFacts: SalesProfile = { ...profile, responsePolicy: { ...profile.responsePolicy, allowCitedProductFacts: true }, productFactEntries: [
+    { id: "approved", version: "1", statement: "LotLift sends a summary.", approval: { version: "1", status: "approved" } },
+    { id: "draft", version: "1", statement: "LotLift predicts every sale.", approval: { version: "1", status: "draft" } },
+  ] };
+  const resolved = resolveSalesProfile(withFacts);
+  expect(resolved.approvedProductFacts).toEqual([{ id: "approved", statement: "LotLift sends a summary." }]);
+  expect(resolved.snapshotVersion).not.toBe(resolveSalesProfile({ ...withFacts, productFactEntries: [] }).snapshotVersion);
 });
 
 it("defaults approval checks to deny", () => {

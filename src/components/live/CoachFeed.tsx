@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUp, ChevronDown, Loader2, MessageCircle, Sparkles } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useStore, meetingBriefText, speakerKey, speakerLabel } from "../../lib/store";
+import { useStore, speakerKey, speakerLabel } from "../../lib/store";
 import { useStickToBottom } from "../../lib/useStickToBottom";
-import { hasProviderKey } from "../../lib/ai/settings";
 import { runAnalysis } from "../../lib/analysis/engine";
 import { useI18n } from "../../i18n";
 import { log } from "../../lib/log";
 import { getSalesPilotLiveStatus, subscribeSalesPilotLiveStatus } from "../../lib/sales/liveStatus";
 import { getLotLiftLiveStatus, subscribeLotLiftLiveStatus } from "../../lib/lotlift/liveStatus";
 import { FindingRow } from "../analysis/FindingRow";
-import { CopyButton } from "../CopyButton";
 import { speakerDotClass } from "../../lib/speakerColors";
-import { openSolution, selectAndSeek } from "../analysis/useAnalysis";
+import { selectAndSeek } from "../analysis/useAnalysis";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -75,23 +71,6 @@ function AutoAnalyzeMenu() {
   );
 }
 
-interface AskCard {
-  id: string;
-  question: string;
-  answer: string;
-  busy: boolean;
-}
-
-/** Replace one ask card by id, leaving the rest untouched. */
-function patchCard(cards: AskCard[], id: string, patch: Partial<AskCard>): AskCard[] {
-  return cards.map((x) => (x.id === id ? { ...x, ...patch } : x));
-}
-
-/** Append a streamed chunk to one ask card's answer. */
-function appendToCard(cards: AskCard[], id: string, chunk: string): AskCard[] {
-  return cards.map((x) => (x.id === id ? { ...x, answer: x.answer + chunk } : x));
-}
-
 /**
  * The header upload button's other replacement: import from the idle feed —
  * the shared flow (R7), so it takes .txt transcripts too, not just audio.
@@ -105,15 +84,6 @@ async function importRecording() {
     toast.error(e instanceof Error ? e.message : String(e));
   }
 }
-
-/** Rotating ask-bar suggestions (same catalog the old Ask pane used). */
-const SUGGESTIONS = [
-  "ask.suggestion.next",
-  "ask.suggestion.agreed",
-  "ask.suggestion.unanswered",
-  "ask.suggestion.pushback",
-  "ask.suggestion.summary",
-] as const;
 
 /** Empty-state illustration: a quiet stack of coach cards waiting to arrive. */
 function SpeakerPicker() {
@@ -159,25 +129,6 @@ function SpeakerPicker() {
   );
 }
 
-function recommendationSourceLabel(source: string): string {
-  if (source === "model-grounded") return "Model-grounded";
-  if (source === "safe-fallback") return "Safe fallback";
-  return "Approved move";
-}
-
-function SayThisNow({ reply, recommendation }: Readonly<{ reply: string; recommendation?: { moveId: string; source: string; stage: string } }>) {
-  return (
-    <section className="rounded-lg border border-primary/50 px-3 py-2.5" aria-live="polite" aria-labelledby="say-this-now-title">
-      <div className="flex items-center justify-between gap-2">
-        <p id="say-this-now-title" className="text-sm font-semibold">Say this now</p>
-        <CopyButton value={reply} label="Copy" className="h-7" />
-      </div>
-      <p className="mt-1 text-sm leading-5">{reply}</p>
-      {recommendation && <p className="mt-2 text-xs text-muted-foreground">Goal: {recommendation.stage.replace(/-/g, " ")} · {recommendationSourceLabel(recommendation.source)}</p>}
-    </section>
-  );
-}
-
 function FeedPlaceholder() {
   return (
     <svg viewBox="0 0 220 140" className="mx-auto h-28 w-44 text-muted-foreground/40" aria-hidden>
@@ -211,9 +162,8 @@ function FeedPlaceholder() {
 
 /**
  * The LIVE center pane: one chronological coach stream — evaluation findings
- * (each drills into "how to reply") and inline Ask answers — with a single ask
- * input bar at the bottom. Replaces the tabbed Ask/TODO WorkPanel: the coach
- * has one mouth, and the center of the screen belongs to it.
+ * with each automatic response rendered directly as a “Say this” instruction.
+ * The center of the screen is reserved for live coaching, not a second search flow.
  */
 export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>) {
   const { t } = useI18n();
@@ -222,78 +172,18 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
   const analysisStatus = useStore((s) => s.analysisStatus);
   const running = analysisStatus === "running";
 
-  const [askCards, setAskCards] = useState<AskCard[]>([]);
-  const [input, setInput] = useState("");
-  const [suggestionIdx, setSuggestionIdx] = useState(0);
   const [salesPilotStatus, setSalesPilotStatus] = useState(getSalesPilotLiveStatus);
   const [lotLiftStatus, setLotLiftStatus] = useState(getLotLiftLiveStatus);
-  const solutionFindingId = useStore((s) => s.solutionFindingId);
-  const sayNow = useStore((s) => solutionFindingId ? s.findingSolutions[solutionFindingId]?.solution?.replies[0]?.reply ?? null : null);
-  const sayNowRecommendation = useStore((s) => solutionFindingId ? s.findings.find((finding) => finding.id === solutionFindingId)?.lotLiftRecommendation : undefined);
-  const busy = askCards.some((c) => c.busy);
-  const suggestion = t(SUGGESTIONS[suggestionIdx]);
+  const findingSolutions = useStore((s) => s.findingSolutions);
   // Same follow-the-tail rule as the transcript: chase new cards only while
   // the reader is already at the bottom. No pill here — the feed's own ask bar
   // already sits under it, and a second floating control would crowd it.
-  const { viewportRef } = useStickToBottom([findings.length, askCards]);
+  const { viewportRef } = useStickToBottom([findings.length, findingSolutions]);
 
   useEffect(() => subscribeSalesPilotLiveStatus(() => setSalesPilotStatus(getSalesPilotLiveStatus())), []);
   useEffect(() => subscribeLotLiftLiveStatus(() => setLotLiftStatus(getLotLiftLiveStatus())), []);
 
-  // Rotate the ghost suggestion while the input is empty.
-  useEffect(() => {
-    if (input) return;
-    const id = setInterval(() => setSuggestionIdx((i) => (i + 1) % SUGGESTIONS.length), 4000);
-    return () => clearInterval(id);
-  }, [input]);
-
-  // Tab / → completes the ghost suggestion into the input; ↑ / ↓ cycles it.
-  function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (input) return;
-    if (e.key === "Tab" || e.key === "ArrowRight") {
-      e.preventDefault();
-      setInput(suggestion);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSuggestionIdx((i) => (i + 1) % SUGGESTIONS.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSuggestionIdx((i) => (i - 1 + SUGGESTIONS.length) % SUGGESTIONS.length);
-    }
-  }
-
-  async function ask(raw: string) {
-    const q = raw.trim();
-    if (!q || busy) return;
-    setInput("");
-    const id = crypto.randomUUID();
-    setAskCards((c) => [...c, { id, question: q, answer: "", busy: true }]);
-    const state = useStore.getState();
-    if (!hasProviderKey(state.settings, "realtime")) {
-      setAskCards((c) => patchCard(c, id, { answer: t("ask.missingKey"), busy: false }));
-      return;
-    }
-    try {
-      const { askAboutMeeting } = await import("../../lib/ai/ask");
-      await askAboutMeeting({
-        settings: state.settings,
-        segments: state.segments,
-        question: q,
-        meetingContext: meetingBriefText(state),
-        names: state.speakerNames,
-        onDelta: (chunk) => {
-          setAskCards((c) => appendToCard(c, id, chunk));
-        },
-      });
-    } catch (e) {
-      log.error("feed: ask failed", { error: String(e) });
-      setAskCards((c) => patchCard(c, id, { answer: String(e), busy: false }));
-    } finally {
-      setAskCards((c) => patchCard(c, id, { busy: false }));
-    }
-  }
-
-  const empty = findings.length === 0 && askCards.length === 0;
+  const empty = findings.length === 0;
   const recording = useStore((s) => s.meetingStatus === "recording");
 
   return (
@@ -326,7 +216,6 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
       <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
         <div className="flex flex-col gap-2 px-3 pb-2">
           {recording && <SpeakerPicker />}
-          {recording && sayNow && <SayThisNow reply={sayNow} recommendation={sayNowRecommendation} />}
           {empty && (
             <div className="flex flex-col items-center gap-3 px-1 py-10">
               <FeedPlaceholder />
@@ -348,54 +237,12 @@ export function CoachFeed({ onSeek }: Readonly<{ onSeek: (ms: number) => void }>
               event={f}
               selected={f.id === selectedId}
               onSelect={(ev) => selectAndSeek(ev, onSeek)}
-              onOpenSolution={(ev) => openSolution(ev, onSeek)}
+              reply={findingSolutions[f.id]?.solution?.replies[0]?.reply}
             />
-          ))}
-          {askCards.map((c) => (
-            <div key={c.id} className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
-              <p className="mb-1 flex items-start gap-1.5 text-xs font-medium text-muted-foreground">
-                <MessageCircle className="mt-0.5 size-3.5 shrink-0" />
-                <span className="min-w-0">{c.question}</span>
-              </p>
-              {c.answer ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{c.answer}</ReactMarkdown>
-                </div>
-              ) : (
-                <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-              )}
-            </div>
           ))}
         </div>
       </ScrollArea>
 
-      {/* The ask bar — Ask demoted from a resident chat pane to one input line. */}
-      <form
-        className="flex shrink-0 gap-1.5 border-t px-3 py-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void ask(input);
-        }}
-      >
-        <div className="relative min-w-0 flex-1">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            placeholder={suggestion}
-            className="h-8 pr-12 text-sm"
-            disabled={busy}
-          />
-          {!input && (
-            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
-              Tab ↹
-            </kbd>
-          )}
-        </div>
-        <Button type="submit" size="icon" className="h-8 w-8 shrink-0" disabled={busy || !input.trim()}>
-          <ArrowUp className="size-4" />
-        </Button>
-      </form>
     </div>
   );
 }

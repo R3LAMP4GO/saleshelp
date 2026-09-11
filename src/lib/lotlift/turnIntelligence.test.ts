@@ -41,16 +41,72 @@ describe("LotLift bounded local SalesPilot", () => {
     expect(requests).toBe(0);
   });
 
-  it("uses generic contextual clarification without live book retrieval for a novel objection", async () => {
+  it("uses contextual clarification without live book retrieval for a novel objection", async () => {
     const owner = prospect("owner", "I own the internet-lead workflow.");
     const turn = prospect("novel-methodology", "I worry the staff will think this is spying.");
     const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
     const requests: Array<{ system: string; prompt: string }> = [];
-    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async (input) => { requests.push(input); return output("guided-objection-discovery", "That makes sense. What concerns your staff most?", [turn.id]); } });
-    expect(result).toMatchObject({ source: "model", move_id: "guided-objection-discovery" });
+    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async (input) => { requests.push(input); return output("contextual-response", "That makes sense about spying. What concerns your staff most?", [turn.id]); } });
+    expect(result).toMatchObject({ source: "model", move_id: "contextual-response" });
     expect(requests[0]?.system).not.toContain("# Sales Methodology");
     expect(requests[0]?.prompt).not.toContain("cold-calling-sucks");
     expect(requests[0]?.prompt).not.toContain("source_support");
+  });
+
+  it("accepts a grounded composed response for contextual response", async () => {
+    const owner = prospect("generic-owner", "I handle paid inquiries.");
+    const turn = prospect("generic-turn", "We get a mix from the usual sites.", 1_000);
+    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
+    const result = await analyzeLotLiftTurn({
+      state,
+      turn,
+      conversation: [owner, turn],
+      resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE),
+      model: async () => output("contextual-response", "That helps. What would be most useful to clarify?", [turn.id]),
+    });
+
+    expect(result).toMatchObject({ source: "model", move_id: "contextual-response", spoken_response: "That helps. What would be most useful to clarify?" });
+  });
+
+  it.each([
+    ["wrong move", output("lead-source", "That helps. What happens when an online inquiry arrives after hours?", ["generic-turn"])],
+    ["unsupported claim", output("contextual-response", "That helps. LotLift will improve results.", ["generic-turn"])],
+    ["missing citation", output("contextual-response", "That helps. What would be most useful to clarify?", [])],
+    ["stale script", output("contextual-response", "Understood. Could you email a proposal?", ["generic-turn"])],
+  ])("uses the local contextual fallback for %s without another model attempt", async (_name, modelOutput) => {
+    const owner = prospect("generic-owner", "I handle paid inquiries.");
+    const turn = prospect("generic-turn", "We get a mix from the usual sites.", 1_000);
+    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
+    let requests = 0;
+    const result = await analyzeLotLiftTurn({
+      state,
+      turn,
+      conversation: [owner, turn],
+      resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE),
+      model: async () => { requests += 1; return modelOutput; },
+    });
+
+    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "contextual-response", selected_move: { response: "I want to understand that before assuming anything. What would be most useful to clarify?" } });
+    expect(requests).toBe(1);
+  });
+
+  it("shares assimilated ownership between routing and contextual composition", async () => {
+    const owner = prospect("owner-answer", "That would be me.");
+    let modelPrompt = "";
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const state = stateWith([{ type: "pending-answer", pending: { rep_segment_id: "o3", profile_id: profile.profileId, profile_snapshot_version: profile.snapshotVersion, move_id: "O3", kind: "confirmation", target_field: "workflow_owner", created_revision: 0 } }]);
+    const ownerResult = await analyzeLotLiftTurn({ state, turn: owner, conversation: [rep("o3", "Is that you?"), owner], resolvedProfile: profile, model: async ({ prompt }) => {
+      modelPrompt = prompt;
+      return output("lead-source", "Which online sources generate most buyer inquiries for you today?", [owner.id]);
+    } });
+    expect(ownerResult.source).toBe("model");
+    expect(modelPrompt).toContain("That would be me.");
+    expect(modelPrompt).toContain("workflow_owner");
+    const nextState = ownerResult.state_events.reduce(reduceLotLiftCallState, state);
+    const why = prospect("why-after-owner", "Why are you calling?");
+    const whyResult = await analyzeLotLiftTurn({ state: nextState, turn: why, conversation: [rep("o3", "Is that you?"), owner, why], resolvedProfile: profile, model: async () => output("contextual-response", "I'm calling to understand your online inquiry workflow. What would be most useful to clarify?", [why.id]) });
+    expect(whyResult).toMatchObject({ source: "model", move_id: "contextual-response" });
+    expect(whyResult.spoken_response).not.toMatch(/is that you|who handles|who owns/i);
   });
 
   it("shows a deterministic first-refusal fallback and terminates a second substantive refusal", async () => {
@@ -82,7 +138,7 @@ describe("LotLift bounded local SalesPilot", () => {
 
     const crm = prospect("crm", "Yeah, I guess. We use VinSolutions.", 4_000);
     const crmResult = await run(state, [who, saidIdentity, purposeQuestion, saidPurpose, crm], new Error("offline"), repSettings);
-    expect(crmResult).toMatchObject({ move_id: "crm-coverage", source: "fallback" });
+    expect(crmResult).toMatchObject({ move_id: "identify-owner", source: "fallback" });
     expect(crmResult.selected_move!.response).not.toMatch(/which CRM|replace/i);
     state = crmResult.state_events.reduce(reduceLotLiftCallState, state);
     expect(state.current_solution).toMatchObject({ value: "VinSolutions", status: "verified" });

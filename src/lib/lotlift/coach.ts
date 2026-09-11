@@ -11,6 +11,7 @@ import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
 import { salesRecommendationMetadata } from "../sales/meeting";
 import { latestProspectTurn, prospectTurn, roleAwareConversation } from "../sales/speakerRoles";
 import { selectLotLiftNextMove } from "./nextMove";
+import { pendingAnswerFromActualRepSpeech } from "./pendingAnswer";
 import type { ResolvedSalesProfile } from "../sales/profiles";
 
 type CoachEvent = { response: Omit<ApprovedLotLiftResponse, "tactic_id">; state: CallStateEvent };
@@ -33,7 +34,6 @@ function display(segment: TranscriptSegment, response: { id: string; title: stri
   const finding: TimelineEvent = { id: `lotlift-${segment.id}`, atMs: segment.endMs, side: "them", severity: critical ? "critical" : "warn", source: "eval", evalIds: [`lotlift-${response.id}`], title: decisionEvidence ? "Decision context changed" : response.title, detail: decisionEvidence ? "Clarify what changed, who needs to decide, and what they need to know." : response.consideration, quotes: decisionEvidence?.evidence ? [decisionEvidence.evidence.text, segment.text] : [segment.text], author: "lotlift", lotLiftRecommendation: { moveId: response.id, source: provenance, stage: response.stage ?? "unknown" }, salesMetadata: store.salesMetadata ? salesRecommendationMetadata(store.salesMetadata) : undefined };
   if (!store.findings.some((item) => item.id === finding.id)) store.addFinding(finding);
   store.setFindingSolution(finding.id, { status: "done", error: null, solution: { findingId: finding.id, replies: [{ kind: "reframe", reply: response.response, consideration: response.consideration }] } });
-  store.setSolutionFinding(finding.id);
   markLotLiftTurn(segment.id, "visible");
   setLotLiftLiveStatus("Suggestion ready");
 }
@@ -70,13 +70,19 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     setLotLiftLiveStatus("Thinking");
     newestProspectSegmentId = segment.id;
     const conversation = roleAwareConversation(state.segments, state.selfSpeakerKey);
-    const newProspectSegments = (speakerChanged ? state.segments : state.segments
-      .filter((item) => !previous.segments.some((previousItem) => previousItem.id === item.id)))
-      .map((item) => prospectTurn(item, state.selfSpeakerKey))
-      .filter((item): item is TranscriptSegment => item !== null);
+    const newlyAdded = speakerChanged ? state.segments : state.segments.filter((item) => !previous.segments.some((previousItem) => previousItem.id === item.id));
+    const newSegmentIds = new Set(newlyAdded.map((item) => item.id));
+    const newProspectSegments = newlyAdded.map((item) => prospectTurn(item, state.selfSpeakerKey)).filter((item): item is TranscriptSegment => item !== null);
+    const priorState = callStates.stateFor(callId) ?? newLotLiftCallState(callId);
+    const repActionEvents = sessionProfile
+      ? conversation.filter((item) => newSegmentIds.has(item.id)).flatMap((item) => {
+        const pending = pendingAnswerFromActualRepSpeech(sessionProfile!, priorState, item);
+        return pending ? [{ type: "pending-answer" as const, pending }] : [];
+      })
+      : [];
     const decisionEvents = newProspectSegments.map(lotLiftDecisionContextEvent).filter((event): event is CallStateEvent => event !== null);
     const currentDecisionEvent = lotLiftDecisionContextEvent(segment);
-    const decisionState = decisionEvents.reduce(reduceLotLiftCallState, callStates.stateFor(callId) ?? newLotLiftCallState(callId));
+    const decisionState = [...repActionEvents, ...decisionEvents].reduce(reduceLotLiftCallState, priorState);
     const decisionEvidence = lotLiftDecisionContextChange(decisionState, currentDecisionEvent);
     const hardRuleStartedAt = performance.now();
     const deterministic = classifyLotLiftTurn(segment, decisionState, state.settings.userName, conversation);
@@ -85,20 +91,20 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     if (deterministic?.response.id === "do-not-call") {
       const prospectId = salesProfileId && state.salesMetadata?.businessId ? canonicalProspectId(state.salesMetadata.prospect) : null;
       if (prospectId && state.salesMetadata) leadMemory.recordDoNotContact({ businessId: state.salesMetadata.businessId, canonicalProspectId: prospectId, recordedAt: new Date().toISOString() });
-      if (callStates.record(callId, segment.id, [...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
+      if (callStates.record(callId, segment.id, [...repActionEvents, ...decisionEvents, deterministic.state])) { void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted")); display(segment, deterministic.response, true); }
       return;
     }
     const fallbackMove = selectLotLiftNextMove({ state: decisionState, turn: segment, conversation, approvedRepIdentity: state.settings.userName, resolvedProfile: sessionProfile });
     const fallbackResponse = moveResponse(fallbackMove);
     if (fallbackMove.source === "terminal-policy") {
-      const events = [...decisionEvents, ...fallbackMove.state_events];
+      const events = [...repActionEvents, ...decisionEvents, ...fallbackMove.state_events];
       if (events.length && callStates.record(callId, segment.id, events)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
       display(segment, fallbackResponse, false, decisionEvidence ?? undefined);
       return;
     }
     // Do not record the fallback move before the selector runs: it would make this
     // very turn look like a repeated objection. The final selected/fallback move is persisted below.
-    const initialEvents = deterministic ? [...decisionEvents, deterministic.state] : [...decisionEvents];
+    const initialEvents = deterministic ? [...repActionEvents, ...decisionEvents, deterministic.state] : [...repActionEvents, ...decisionEvents];
     if (initialEvents.length && callStates.record(callId, segment.id, initialEvents)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
     display(segment, deterministic?.response ?? fallbackResponse, false, decisionEvidence ?? undefined);
     const controller = new AbortController();

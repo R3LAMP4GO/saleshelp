@@ -46,6 +46,5 @@ export function initGenericQuestionCoach(): () => void {
       error: null,
       solution: { findingId: id, replies: [{ kind: "reframe", reply: safeDiscoveryQuestion(turn.text), consideration: "Clarify their priorities without making product claims." }] },
     });
-    state.setSolutionFinding(id);
   });
 }

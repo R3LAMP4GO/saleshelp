@@ -1,5 +1,5 @@
 import type { TranscriptSegment } from "../types";
-import type { LotLiftCallState } from "./callState";
+import { deriveLotLiftConversationStage, type LotLiftCallState } from "./callState";
 import type { LotLiftPlaybookRuleId } from "./playbook";
 import type { LotLiftScriptCard } from "./scriptCards";
 import { normalizeForIntent } from "./intentNormalization";
@@ -99,8 +99,9 @@ export function selectLotLiftColdCallCard(turn: TranscriptSegment, state: LotLif
   const contextualOrDefault = (id: "O1" | "O2" | "O3", intent: LotLiftColdCallIntent) => choose(id, intent) ?? choose("O0", intent);
   if (/^(?:hello|hi|hey|good (?:morning|afternoon))\b[!. ]*$/i.test(text)) return contextualOrDefault("O1", "greeting");
   if (/\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/i.test(text)) return contextualOrDefault("O2", "identity");
-  if (/\b(?:what(?:'s| is) this (?:about|regarding)|why (?:are you|did you)(?: call| calling))\b/.test(text)) return contextualOrDefault("O3", "purpose");
-  if (/\bhow can I help\b/i.test(text)) return contextualOrDefault("O3", "purpose");
-  if (/\b(?:yes|sure|go ahead|you have (?:30|thirty) seconds)\b/i.test(text) && stage === "opening") return contextualOrDefault("O3", "permission");
+  const ownershipUnknown = deriveLotLiftConversationStage(state) === "owner-identification";
+  if (/\b(?:what(?:'s| is) this (?:about|regarding)|why (?:are you|did you)(?: call| calling))\b/.test(text) && ownershipUnknown) return contextualOrDefault("O3", "purpose");
+  if (/\bhow can I help\b/i.test(text) && ownershipUnknown) return contextualOrDefault("O3", "purpose");
+  if (/\b(?:yes|sure|go ahead|you have (?:30|thirty) seconds)\b/i.test(text) && ownershipUnknown) return contextualOrDefault("O3", "permission");
   return null;
 }

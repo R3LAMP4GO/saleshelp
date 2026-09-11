@@ -48,10 +48,11 @@ export function buildLotLiftTurnDirective(input: { state: LotLiftCallState; turn
   const framework = strategy ? null : input.framework ?? null;
   const approach = strategy?.approach ?? novelApproach(input.turn) ?? (framework ? FRAMEWORK_APPROACH[framework.id] ?? GENERIC_APPROACH : GENERIC_APPROACH);
   const avoid = strategy?.avoid ?? ["Do not invent product capabilities or prospect facts.", "Do not feature dump or argue."];
+  const contextual = input.candidate.id === "contextual-response";
   return Object.freeze({
     objective: strategy?.objective ?? input.candidate.goal,
-    approach: Object.freeze([...approach]),
-    avoid: Object.freeze([...avoid]),
+    approach: Object.freeze(contextual ? [...approach, "Open by directly addressing one concrete detail from the prospect's latest turn before asking the next question.", "For a direct question, give a truthful answer or limitation before the follow-up question."] : [...approach]),
+    avoid: Object.freeze(contextual ? [...avoid, "Do not restate a verified ownership confirmation or restart the owner-discovery question."] : [...avoid]),
     relevant_call_evidence: evidence(input.state, input.turn),
     desired_progression: strategy?.desiredProgression ?? "Understand the concern before advancing the call.",
     max_questions: 1,

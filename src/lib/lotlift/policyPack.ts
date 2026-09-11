@@ -4,6 +4,7 @@ import { LOTLIFT_REQUIRED_RULE_IDS, type LotLiftPlaybookRuleId } from "./playboo
 
 export const LOTLIFT_POLICY_TACTIC_IDS = [
   "permission-and-route",
+  "contextual-answer",
   "workflow-discovery",
   "impact-clarification",
   "solution-verification",
@@ -54,6 +55,9 @@ export const LOTLIFT_POLICY_TACTICS: Record<LotLiftPolicyTacticId, LotLiftPolicy
   "permission-and-route": {
     id: "permission-and-route", permitted_stages: ["owner-identification", "relevance-discovery"], required_context: [], optional_context: ["workflow-owner"], forbidden_when: ["terminal", "disqualified", "do-not-contact", "second-refusal"], allowed_claim_classes: discoveryClaims, fallback_tactic: "respectful-exit",
   },
+  "contextual-answer": {
+    id: "contextual-answer", permitted_stages: ["owner-identification", "relevance-discovery", "gap-confirmation", "qualification", "meeting-invitation"], required_context: [], optional_context: ["workflow-owner", "supported-source", "workflow-evidence", "gap"], forbidden_when: ["terminal", "disqualified", "do-not-contact", "second-refusal"], allowed_claim_classes: ["prospect-evidence", "approved-product-fact", "approved-policy-fact", "truthful-limitation", "question"], fallback_tactic: "workflow-discovery",
+  },
   "workflow-discovery": {
     id: "workflow-discovery", permitted_stages: ["relevance-discovery", "gap-confirmation"], required_context: ["workflow-owner"], optional_context: ["supported-source", "workflow-evidence"], forbidden_when: ["terminal", "disqualified", "do-not-contact", "second-refusal"], allowed_claim_classes: discoveryClaims, fallback_tactic: "permission-and-route",
   },
@@ -85,6 +89,7 @@ export const LOTLIFT_POLICY_TACTICS: Record<LotLiftPolicyTacticId, LotLiftPolicy
 
 export const LOTLIFT_TACTIC_RULES: Record<LotLiftPolicyTacticId, readonly LotLiftPlaybookRuleId[]> = {
   "permission-and-route": ["discovery:ownership", "objection:not-interested"],
+  "contextual-answer": ["discovery:lead-source", "discovery:after-hours", "discovery:visibility"],
   "workflow-discovery": ["discovery:lead-source", "discovery:after-hours", "discovery:visibility", "objection:source-volume", "objection:team-size"],
   "impact-clarification": ["qualification:pain", "objection:status-quo"],
   "solution-verification": ["objection:existing-crm", "objection:existing-workflow", "objection:competitor", "objection:comparison"],
@@ -98,20 +103,22 @@ export const LOTLIFT_TACTIC_RULES: Record<LotLiftPolicyTacticId, readonly LotLif
 
 export const LOTLIFT_APPROVED_MOVE_IDS = [
   "terminal-close", "disqualified-close", "abuse-close", "hard-integration-close", "unsupported-fit-close", "second-no-close", "O2", "O3",
-  "first-refusal", "guided-objection-discovery", "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "price-pain-value", "price-stakeholder-criteria", "price-next-criterion", "crm-coverage", "impact-coverage", "identify-owner", "lead-source",
+  "first-refusal", "answer-and-advance", "ai-skepticism", "staff-adoption", "guided-objection-discovery", "contextual-response", "price-isolation", "price-value-workflow-check", "price-value-uncertainty", "price-pain-value", "price-stakeholder-criteria", "price-next-criterion", "crm-coverage", "impact-coverage", "identify-owner", "lead-source",
   "gap-after-hours", "gap-visibility", "confirm-authority", "workflow-check", "timing-follow-up", "information-topic", "decision-criteria", "existing-workflow-coverage", "fit-source-volume", "competitor-criteria", "security-authorization", "limitation-route",
 ] as const;
 export type LotLiftApprovedMoveId = typeof LOTLIFT_APPROVED_MOVE_IDS[number];
 
 export const LOTLIFT_MOVE_RULES: Record<LotLiftApprovedMoveId, readonly LotLiftPlaybookRuleId[]> = {
   "terminal-close": ["objection:do-not-contact"], "disqualified-close": ["objection:direct-integration"], "abuse-close": ["objection:not-interested"], "hard-integration-close": ["objection:direct-integration"], "unsupported-fit-close": ["objection:source-volume"], "second-no-close": ["objection:not-interested"], "O2": ["discovery:ownership"], "O3": ["discovery:lead-source"],
-  "first-refusal": ["objection:not-interested"], "guided-objection-discovery": ["qualification:pain"], "price-isolation": ["objection:no-budget"], "price-value-workflow-check": ["objection:no-budget", "close:workflow-check"], "price-value-uncertainty": ["objection:no-budget"], "price-pain-value": ["objection:no-budget"], "price-stakeholder-criteria": ["objection:spouse-partner"], "price-next-criterion": ["objection:no-budget"], "crm-coverage": ["objection:existing-crm"], "impact-coverage": ["qualification:pain"], "identify-owner": ["discovery:ownership"], "lead-source": ["discovery:lead-source"],
+  "first-refusal": ["objection:not-interested"], "answer-and-advance": ["discovery:after-hours"], "ai-skepticism": ["objection:ai-automation"], "staff-adoption": ["objection:staff-adoption"], "guided-objection-discovery": ["qualification:pain"], "contextual-response": ["qualification:pain"], "price-isolation": ["objection:no-budget"], "price-value-workflow-check": ["objection:no-budget", "close:workflow-check"], "price-value-uncertainty": ["objection:no-budget"], "price-pain-value": ["objection:no-budget"], "price-stakeholder-criteria": ["objection:spouse-partner"], "price-next-criterion": ["objection:no-budget"], "crm-coverage": ["objection:existing-crm"], "impact-coverage": ["qualification:pain"], "identify-owner": ["discovery:ownership"], "lead-source": ["discovery:lead-source"],
   "gap-after-hours": ["discovery:after-hours"], "gap-visibility": ["discovery:visibility"], "confirm-authority": ["qualification:authority"], "workflow-check": ["close:workflow-check"], "timing-follow-up": ["objection:busy", "objection:call-later", "objection:contract"], "information-topic": ["objection:send-information"], "decision-criteria": ["objection:need-to-think", "objection:spouse-partner", "objection:trial", "objection:build-it", "objection:new-company"], "existing-workflow-coverage": ["objection:existing-workflow", "objection:status-quo"], "fit-source-volume": ["objection:source-volume", "objection:team-size"], "competitor-criteria": ["objection:competitor", "objection:comparison"], "security-authorization": ["objection:data-security", "objection:ai-automation", "objection:provider-authorization"], "limitation-route": ["objection:marketplace-coverage", "objection:roi"],
 };
 
 export const LOTLIFT_MOVE_TACTICS: Record<LotLiftApprovedMoveId, LotLiftPolicyTacticId> = {
   "terminal-close": "respectful-exit", "disqualified-close": "respectful-exit", "abuse-close": "respectful-exit", "hard-integration-close": "truthful-limitation", "unsupported-fit-close": "truthful-limitation", "second-no-close": "respectful-exit", "O2": "permission-and-route", "O3": "workflow-discovery",
-  "first-refusal": "permission-and-route", "guided-objection-discovery": "concern-isolation", "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "price-pain-value": "concern-isolation", "price-stakeholder-criteria": "decision-criteria", "price-next-criterion": "concern-isolation", "crm-coverage": "solution-verification", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
+  "first-refusal": "permission-and-route",
+  "answer-and-advance": "contextual-answer",
+  "ai-skepticism": "concern-isolation", "staff-adoption": "concern-isolation", "guided-objection-discovery": "concern-isolation", "contextual-response": "contextual-answer", "price-isolation": "concern-isolation", "price-value-workflow-check": "scoped-next-step", "price-value-uncertainty": "decision-criteria", "price-pain-value": "concern-isolation", "price-stakeholder-criteria": "decision-criteria", "price-next-criterion": "concern-isolation", "crm-coverage": "solution-verification", "impact-coverage": "impact-clarification", "identify-owner": "permission-and-route", "lead-source": "workflow-discovery",
   "gap-after-hours": "workflow-discovery", "gap-visibility": "workflow-discovery", "confirm-authority": "solution-verification", "workflow-check": "scoped-next-step", "timing-follow-up": "consented-follow-up", "information-topic": "consented-follow-up", "decision-criteria": "decision-criteria", "existing-workflow-coverage": "solution-verification", "fit-source-volume": "workflow-discovery", "competitor-criteria": "solution-verification", "security-authorization": "truthful-limitation", "limitation-route": "truthful-limitation",
 };
 

@@ -52,7 +52,6 @@ function display(segment: TranscriptSegment, profile: SalesPilotProfile, stage: 
   };
   store.addFinding(finding);
   store.setFindingSolution(id, { status: "done", error: null, solution: { findingId: id, replies: [{ kind: "reframe", reply: say, consideration: profile.objective }] } });
-  store.setSolutionFinding(id);
 }
 
 /** One finalized-prospect subscription for every compiled sales profile. */

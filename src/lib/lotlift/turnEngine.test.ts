@@ -32,6 +32,12 @@ describe("LotLift cold-call turn engine", () => {
     expect(result?.response).toContain("who handles your online leads");
   });
 
+  it("never reopens O3 once the workflow owner is verified", () => {
+    const state = callState();
+    state.workflow_owner = { value: "That would be me.", status: "verified", evidence: { segment_id: "owner", text: "That would be me." } };
+    expect(selectLotLiftColdCallCard(turn("Why are you calling?"), state, [], "Isaiah")).toBeNull();
+  });
+
   it("uses the context-free permission card when configured profile facts are unavailable", () => {
     const state = newLotLiftCallState("call");
     expect(selectLotLiftColdCallCard(turn("Hello"), state, [], "Isaiah")?.card.id).toBe("O0");

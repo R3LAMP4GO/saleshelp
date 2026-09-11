@@ -53,6 +53,8 @@ export type LotLiftCompositionPayload = {
   /** Actual representative responses following earlier recognized objections. */
   previous_objection_responses: ContextPackObjection[];
   stakeholder_context: LotLiftStakeholderContext;
+  /** The next workflow detail that can advance the call without repeating verified evidence. */
+  next_unresolved_workflow_detail: string | null;
   sales_script_stage: { conversation_stage: import("./callState").LotLiftConversationStage; cold_call_stage: LotLiftColdCallStage };
   approved_objection_card: { id: string; rule_id: LotLiftPlaybookRuleId } | null;
   allowed_product_facts: LotLiftApprovedProductFact[];
@@ -194,6 +196,15 @@ function stakeholderContext(state: LotLiftCallState): LotLiftStakeholderContext 
   };
 }
 
+export function nextUnresolvedLotLiftWorkflowDetail(state: LotLiftCallState): string | null {
+  if (!state.workflow_owner.value) return "who owns paid online inquiry response";
+  if (!state.lead_arrival_point.value) return "where paid online inquiries arrive";
+  if (!state.after_hours_process.value) return "how paid online inquiries are handled after hours";
+  if (!state.visibility_process.value) return "how the team verifies inquiries were worked";
+  if (!state.authority.value) return "who can decide whether to review the workflow";
+  return null;
+}
+
 /** Full, role-aware composition payload. Limits are detected by the composer; this never truncates. */
 export function buildLotLiftCompositionPayload(
   state: LotLiftCallState,
@@ -217,6 +228,7 @@ export function buildLotLiftCompositionPayload(
     previous_rep_questions: previousRepQuestions(transcript, turn),
     previous_objection_responses: lotLiftPriorObjections(state, conversation, turn).filter((objection) => objection.rep_response !== null).slice(-MAX_PREVIOUS_OBJECTIONS),
     stakeholder_context: stakeholderContext(state),
+    next_unresolved_workflow_detail: nextUnresolvedLotLiftWorkflowDetail(state),
     sales_script_stage: { conversation_stage: deriveLotLiftConversationStage(state), cold_call_stage: coldCallStage(conversation) },
     approved_objection_card: route && ruleIds.includes(route.rule_id) ? { id: route.id, rule_id: route.rule_id } : null,
     allowed_product_facts: approvedProductFacts.slice(0, MAX_PRODUCT_FACTS).map(({ id, statement }) => ({ id, statement: boundedText(statement) })),

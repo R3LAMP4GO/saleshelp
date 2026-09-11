@@ -26,16 +26,16 @@ it("builds the CRM directive directly from the editable profile strategy", () =>
   expect(directive.methodology_framework_id).toBeUndefined();
 });
 
-it("uses one framework only when the generic move has no profile strategy", () => {
+it("uses the profile strategy for contextual trust concerns without a framework", () => {
   const owner = turn("owner", "I own the internet-lead workflow.");
   let state = newLotLiftCallState("novel-directive");
   state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: { value: owner.text, status: "verified", evidence: { segment_id: owner.id, text: owner.text } } });
   const objection = turn("objection", "I am concerned my sales guys are going to think I am spying on them.");
   const candidate = lotLiftMoveCandidates({ state, turn: objection, conversation: [owner, objection], resolvedProfile: profile })[0]!;
-  expect(candidate.id).toBe("guided-objection-discovery");
-  expect(moveHasGuidedTurnStrategy(profile, candidate.id)).toBe(false);
+  expect(candidate.id).toBe("contextual-response");
+  expect(moveHasGuidedTurnStrategy(profile, candidate.id)).toBe(true);
   const directive = buildLotLiftTurnDirective({ state, turn: objection, candidate, resolvedProfile: profile, framework: { id: "disarm-and-diagnose" } });
-  expect(directive.methodology_framework_id).toBe("disarm-and-diagnose");
-  expect(directive.approach).toContain("Distinguish trust or perception from workflow burden with one diagnostic question.");
+  expect(directive.methodology_framework_id).toBeUndefined();
+  expect(directive.approach).toContain("Answer an explicit question first, or acknowledge the stated concern without arguing.");
   expect(directive.max_questions).toBe(1);
 });

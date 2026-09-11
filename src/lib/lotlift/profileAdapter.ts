@@ -5,6 +5,10 @@ export interface ResolvedLotLiftScriptContext {
   representativeName?: string | null;
   firstName?: string | null;
   dealership?: string | null;
+  nextQuestion?: string | null;
+  workflowQuestion?: string | null;
+  adoptionQuestion?: string | null;
+  contextualQuestion?: string | null;
 }
 
 function safeValue(value: string | null | undefined): string | null {
@@ -18,6 +22,10 @@ export function renderResolvedLotLiftScript(script: string, context: ResolvedLot
     "configured rep name": safeValue(context.representativeName),
     "first name": safeValue(context.firstName),
     dealership: safeValue(context.dealership),
+    "next question": safeValue(context.nextQuestion),
+    "workflow question": safeValue(context.workflowQuestion),
+    "adoption question": safeValue(context.adoptionQuestion),
+    "contextual question": safeValue(context.contextualQuestion),
   };
   let missing = false;
   const response = script.replace(/\[([^\]]+)\]/g, (_, variable: string) => {

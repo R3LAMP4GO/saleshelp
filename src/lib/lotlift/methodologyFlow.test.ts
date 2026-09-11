@@ -18,7 +18,7 @@ it("preserves policy routes across the methodology behavioral cases", () => {
   priceState = select(priceState, "Our late internet leads sit until morning.").state_events.reduce(reduceLotLiftCallState, priceState);
   expect(select(priceState, "This sounds too expensive.")).toMatchObject({ id: "price-isolation", tactic_id: "concern-isolation", rule_ids: ["objection:no-budget"] });
 
-  expect(select(newLotLiftCallState("novel"), "I worry the staff will think this is spying.")).toMatchObject({ id: "guided-objection-discovery", source: "approved-move" });
+  expect(select(newLotLiftCallState("novel"), "I worry the staff will think this is spying.")).toMatchObject({ id: "contextual-response", source: "approved-move" });
 
   let refusalState = newLotLiftCallState("second-no");
   refusalState = select(refusalState, "No thanks, not interested.").state_events.reduce(reduceLotLiftCallState, refusalState);

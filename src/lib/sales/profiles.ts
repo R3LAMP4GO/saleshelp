@@ -24,7 +24,7 @@ export interface SalesResponsePolicy {
 
 export const SALES_RESPONSE_MODES = ["verbatim", "template", "compose"] as const;
 export type SalesResponseMode = typeof SALES_RESPONSE_MODES[number];
-export const SALES_SCRIPT_VARIABLES = ["configured rep name", "first name", "dealership"] as const;
+export const SALES_SCRIPT_VARIABLES = ["configured rep name", "first name", "dealership", "next question", "workflow question", "adoption question", "contextual question"] as const;
 export type SalesScriptVariable = typeof SALES_SCRIPT_VARIABLES[number];
 
 export interface SalesProfileExpectedAnswer {
@@ -80,6 +80,8 @@ export interface ResolvedSalesProfile {
   baseVersion: string;
   snapshotVersion: string;
   behavior: SalesProfileBehavior;
+  /** Approved, immutable product facts permitted for this call snapshot. */
+  approvedProductFacts: readonly Pick<ProductFact, "id" | "statement">[];
   knowledgeAttachments: readonly ProfileKnowledgeAttachment[];
 }
 
@@ -171,11 +173,22 @@ export function validateSalesProfileBehavior(value: SalesProfileBehavior): Sales
   return Object.freeze({ version: 1, objective, moves: Object.freeze(moves), discovery: rules(value.discovery, "Discovery"), objections: rules(value.objections, "Objection"), closeRequirements, claimConstraints, runtimePreferences: Object.freeze({ ...preferences }) });
 }
 
+function approvedProductFacts(profile: SalesProfile): readonly Pick<ProductFact, "id" | "statement">[] {
+  if (!profile.responsePolicy.allowCitedProductFacts || !isApproved(profile.productFacts)) return Object.freeze([]);
+  const ids = new Set<string>();
+  return Object.freeze(profile.productFactEntries.flatMap((fact) => {
+    if (!isApproved(fact.approval) || ids.has(fact.id)) return [];
+    ids.add(fact.id);
+    return [Object.freeze({ id: validateText(fact.id, "Product fact ID", 80), statement: validateText(fact.statement, "Product fact", 500) })];
+  }));
+}
+
 export function resolveSalesProfile(profile: SalesProfile, behavior = profile.behavior, knowledgeAttachments = profile.knowledgeAttachments): ResolvedSalesProfile {
   const validated = validateSalesProfileBehavior(behavior);
   const attachments = validateProfileKnowledgeAttachments(knowledgeAttachments);
-  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify({ behavior: validated, knowledgeAttachments: attachments }))}`;
-  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated, knowledgeAttachments: attachments });
+  const facts = approvedProductFacts(profile);
+  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify({ behavior: validated, approvedProductFacts: facts, knowledgeAttachments: attachments }))}`;
+  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated, approvedProductFacts: facts, knowledgeAttachments: attachments });
 }
 
 export function isApproved(version: VersionedApproval | undefined): boolean {
