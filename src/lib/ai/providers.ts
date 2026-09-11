@@ -77,8 +77,10 @@ export const PROVIDERS: ProviderInfo[] = [
     apiKeyField: "openaiApiKey",
     keyPlaceholder: "sk-…",
     supportsStructuredOutputs: true,
-    models: ["gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
-    defaults: { realtime: "gpt-4.1-mini", deep: "gpt-5.5" },
+    models: ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
+    // LotLift's hosted realtime benchmark starts with the lowest-latency GPT-5.6 option.
+    // Persisted selections are merged independently and are never overwritten by this default.
+    defaults: { realtime: "gpt-5.6-terra", deep: "gpt-5.5" },
   },
   {
     id: "gemini",
@@ -205,5 +207,5 @@ export const DEFAULT_MODELS = Object.fromEntries(
 
 /** Heuristic: does this model id support a `reasoning_effort` control? */
 export function isReasoningModel(modelId: string): boolean {
-  return /gpt-oss|(^|\/)o[1-4]\b|o3|o4-mini|deepseek-r|reason|qwq/i.test(modelId);
+  return /gpt-oss|(^|\/)o[1-4]\b|o3|o4-mini|deepseek-r|reason|qwq|\bgpt-5\.6-(?:terra|luna|sol)\b/i.test(modelId);
 }

@@ -90,6 +90,15 @@ export function getModel(
   const client = createOpenAICompatible({
     name: info.id,
     baseURL: info.baseURL!,
+    // GPT-5.6 rejects the legacy Chat Completions `max_tokens` field emitted by
+    // the compatible SDK. Keep the shared provider path, translating only for
+    // OpenAI's own endpoint to its supported `max_completion_tokens` field.
+    transformRequestBody: info.id === "openai"
+      ? (body) => {
+        const { max_tokens, ...rest } = body;
+        return max_tokens == null ? rest : { ...rest, max_completion_tokens: max_tokens };
+      }
+      : undefined,
     // Local Ollama needs no key, but the SDK wants a non-empty string.
     apiKey: apiKey || (info.requiresKey === false ? "ollama" : apiKey),
     // true → response_format json_schema (schema ENFORCED); false → json_object
@@ -100,8 +109,8 @@ export function getModel(
 }
 
 /**
- * Per-call provider options. For OpenAI-compatible reasoning models (Groq /
- * OpenRouter gpt-oss, o-series, etc.) pass the selected `reasoning_effort`.
+ * Per-call provider options. For OpenAI-compatible reasoning models (gpt-oss,
+ * o-series, and the explicitly supported GPT-5.6 family) pass `reasoning_effort`.
  * Keyed by the active provider name; empty for non-reasoning models or Anthropic.
  */
 export function getProviderOptions(settings: Settings, workload: LlmWorkload) {

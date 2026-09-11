@@ -31,7 +31,10 @@ const LLM_PRICING: Record<string, LlmRate> = {
   "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-  // OpenAI
+  // OpenAI. GPT-5.6 standard short-context rates, verified 2026-09-10.
+  "gpt-5.6-sol": { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
+  "gpt-5.6-terra": { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+  "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
   "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5 },
   "gpt-4.1": { input: 2, output: 8, cacheRead: 0.5 },
   "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheRead: 0.1 },

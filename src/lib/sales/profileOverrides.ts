@@ -1,3 +1,4 @@
+import { validateProfileKnowledgeAttachments, type ProfileKnowledgeAttachment } from "./knowledge";
 import {
   resolveSalesProfile,
   validateSalesProfileBehavior,
@@ -5,10 +6,12 @@ import {
   type SalesProfile,
   type SalesProfileBehavior,
   type SalesProfileRuntimePreferences,
+  type SalesProfileMoveTurnStrategy,
 } from "./profiles";
 
 export interface SalesProfileMoveOverride {
   script?: string;
+  turnStrategy?: SalesProfileMoveTurnStrategy;
 }
 
 /** Local edits for a built-in profile version. Modes and safety rules stay canonical. */
@@ -18,6 +21,7 @@ export interface SalesProfileOverride {
   objective?: string;
   moves?: Record<string, SalesProfileMoveOverride>;
   runtimePreferences?: SalesProfileRuntimePreferences;
+  knowledgeAttachments?: readonly ProfileKnowledgeAttachment[];
   updatedAt: string;
 }
 
@@ -48,9 +52,18 @@ export function validateSalesProfileOverride(value: SalesProfileOverride, profil
   for (const [moveId, moveOverride] of moves) {
     const canonical = canonicalMoves.get(moveId);
     if (!canonical || !moveOverride || typeof moveOverride !== "object") throw new Error("Override references an unknown profile move.");
-    if (moveOverride.script !== undefined) normalizedMoves[moveId] = { script: plainValue(moveOverride.script, `${moveId} script`) };
+    const script = moveOverride.script === undefined ? undefined : plainValue(moveOverride.script, `${moveId} script`);
+    const turnStrategy = moveOverride.turnStrategy === undefined ? undefined : {
+      objective: plainValue(moveOverride.turnStrategy.objective, `${moveId} strategy objective`),
+      approach: moveOverride.turnStrategy.approach.map((item) => plainValue(item, `${moveId} strategy approach`, 300)).slice(0, 8),
+      avoid: moveOverride.turnStrategy.avoid.map((item) => plainValue(item, `${moveId} strategy avoid`, 300)).slice(0, 8),
+      desiredProgression: plainValue(moveOverride.turnStrategy.desiredProgression, `${moveId} strategy progression`),
+    };
+    if (turnStrategy && (!turnStrategy.approach.length || !turnStrategy.avoid.length)) throw new Error(`${moveId} strategy needs approach and avoid guidance.`);
+    if (script !== undefined || turnStrategy !== undefined) normalizedMoves[moveId] = { ...(script === undefined ? {} : { script }), ...(turnStrategy === undefined ? {} : { turnStrategy }) };
   }
   const runtimePreferences = value.runtimePreferences ? { ...value.runtimePreferences } : undefined;
+  const knowledgeAttachments = value.knowledgeAttachments === undefined ? undefined : validateProfileKnowledgeAttachments(value.knowledgeAttachments);
   const behavior = mergeSalesProfileOverride(profile.behavior, { ...value, moves: normalizedMoves, runtimePreferences });
   validateSalesProfileBehavior(behavior);
   return Object.freeze({
@@ -59,6 +72,7 @@ export function validateSalesProfileOverride(value: SalesProfileOverride, profil
     ...(value.objective === undefined ? {} : { objective: plainValue(value.objective, "Objective") }),
     ...(Object.keys(normalizedMoves).length ? { moves: Object.freeze(normalizedMoves) } : {}),
     ...(runtimePreferences ? { runtimePreferences: Object.freeze(runtimePreferences) } : {}),
+    ...(knowledgeAttachments ? { knowledgeAttachments } : {}),
     updatedAt: value.updatedAt,
   });
 }
@@ -67,7 +81,7 @@ export function mergeSalesProfileOverride(behavior: SalesProfileBehavior, overri
   if (!override) return behavior;
   const moves = behavior.moves.map((move) => {
     const edited = override.moves?.[move.id];
-    return edited?.script === undefined ? move : { ...move, script: edited.script };
+    return !edited ? move : { ...move, ...(edited.script === undefined ? {} : { script: edited.script }), ...(edited.turnStrategy === undefined ? {} : { turnStrategy: edited.turnStrategy }) };
   });
   return { ...behavior, objective: override.objective ?? behavior.objective, moves, runtimePreferences: { ...behavior.runtimePreferences, ...override.runtimePreferences } };
 }
@@ -75,7 +89,7 @@ export function mergeSalesProfileOverride(behavior: SalesProfileBehavior, overri
 export function resolveSalesProfileOverride(profile: SalesProfile, override?: SalesProfileOverride | null): ResolvedSalesProfile {
   if (!override) return resolveSalesProfile(profile);
   const valid = validateSalesProfileOverride(override, profile);
-  return resolveSalesProfile(profile, mergeSalesProfileOverride(profile.behavior, valid));
+  return resolveSalesProfile(profile, mergeSalesProfileOverride(profile.behavior, valid), valid.knowledgeAttachments ?? profile.knowledgeAttachments);
 }
 
 export function resetSalesProfileMoveOverride(override: SalesProfileOverride, moveId: string): SalesProfileOverride {

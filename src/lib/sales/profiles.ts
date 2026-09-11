@@ -1,3 +1,5 @@
+import { validateProfileKnowledgeAttachments, type ProfileKnowledgeAttachment } from "./knowledge";
+
 export type SalesMotion = "cold-outbound";
 export type ApprovalStatus = "approved" | "draft" | "disabled";
 
@@ -30,6 +32,13 @@ export interface SalesProfileExpectedAnswer {
   targetField: string;
 }
 
+export interface SalesProfileMoveTurnStrategy {
+  objective: string;
+  approach: readonly string[];
+  avoid: readonly string[];
+  desiredProgression: string;
+}
+
 export interface SalesProfileMove {
   id: string;
   title: string;
@@ -38,6 +47,7 @@ export interface SalesProfileMove {
   responseMode: SalesResponseMode;
   maxWords: number;
   variables: readonly SalesScriptVariable[];
+  turnStrategy?: SalesProfileMoveTurnStrategy;
   expectedAnswer?: SalesProfileExpectedAnswer;
   terminal?: boolean;
 }
@@ -64,12 +74,13 @@ export interface SalesProfileBehavior {
   runtimePreferences: SalesProfileRuntimePreferences;
 }
 
-/** An immutable behavior payload selected when a meeting begins. */
+/** An immutable behavior and knowledge configuration selected when a meeting begins. */
 export interface ResolvedSalesProfile {
   profileId: string;
   baseVersion: string;
   snapshotVersion: string;
   behavior: SalesProfileBehavior;
+  knowledgeAttachments: readonly ProfileKnowledgeAttachment[];
 }
 
 export interface SalesProfile {
@@ -87,6 +98,7 @@ export interface SalesProfile {
   responsePolicy: SalesResponsePolicy;
   productFactEntries: readonly ProductFact[];
   behavior: SalesProfileBehavior;
+  knowledgeAttachments?: readonly ProfileKnowledgeAttachment[];
   crmConnectionId?: string;
   followUpPolicyId?: string;
 }
@@ -97,6 +109,7 @@ const profiles = new Map<string, SalesProfile>();
 export function registerSalesProfile(profile: SalesProfile): void {
   if (profiles.has(profile.id)) throw new Error(`Duplicate sales profile: ${profile.id}`);
   validateSalesProfileBehavior(profile.behavior);
+  validateProfileKnowledgeAttachments(profile.knowledgeAttachments);
   profiles.set(profile.id, profile);
 }
 
@@ -140,7 +153,14 @@ export function validateSalesProfileBehavior(value: SalesProfileBehavior): Sales
       if (!variables.includes(variable[1] as SalesScriptVariable)) throw new Error(`Move ${move.id} references an undeclared script variable.`);
     }
     if (!Number.isInteger(move.maxWords) || move.maxWords < 3 || move.maxWords > 60) throw new Error(`Move ${move.id} needs a word limit between 3 and 60.`);
-    return Object.freeze({ ...move, title: validateText(move.title, `Move ${move.id} title`, 120), goal: validateText(move.goal, `Move ${move.id} goal`, 500), script, variables: Object.freeze(variables) });
+    const turnStrategy = move.turnStrategy === undefined ? undefined : Object.freeze({
+      objective: validateText(move.turnStrategy.objective, `Move ${move.id} turn strategy objective`, 500),
+      approach: Object.freeze(move.turnStrategy.approach.map((item) => validateText(item, `Move ${move.id} turn strategy approach`, 300)).slice(0, 8)),
+      avoid: Object.freeze(move.turnStrategy.avoid.map((item) => validateText(item, `Move ${move.id} turn strategy avoid`, 300)).slice(0, 8)),
+      desiredProgression: validateText(move.turnStrategy.desiredProgression, `Move ${move.id} turn strategy progression`, 500),
+    });
+    if (turnStrategy && (!turnStrategy.approach.length || !turnStrategy.avoid.length)) throw new Error(`Move ${move.id} turn strategy needs approach and avoid guidance.`);
+    return Object.freeze({ ...move, title: validateText(move.title, `Move ${move.id} title`, 120), goal: validateText(move.goal, `Move ${move.id} goal`, 500), script, variables: Object.freeze(variables), ...(turnStrategy ? { turnStrategy } : {}) });
   });
   const rules = (items: readonly SalesProfileRule[], label: string) => Object.freeze(items.map((rule) => Object.freeze({ id: validateText(rule.id, `${label} rule ID`, 80), guidance: validateText(rule.guidance, `${label} guidance`, 12_000) })));
   const closeRequirements = Object.freeze(value.closeRequirements.map((requirement) => validateText(requirement, "Close requirement", 12_000)));
@@ -151,10 +171,11 @@ export function validateSalesProfileBehavior(value: SalesProfileBehavior): Sales
   return Object.freeze({ version: 1, objective, moves: Object.freeze(moves), discovery: rules(value.discovery, "Discovery"), objections: rules(value.objections, "Objection"), closeRequirements, claimConstraints, runtimePreferences: Object.freeze({ ...preferences }) });
 }
 
-export function resolveSalesProfile(profile: SalesProfile, behavior = profile.behavior): ResolvedSalesProfile {
+export function resolveSalesProfile(profile: SalesProfile, behavior = profile.behavior, knowledgeAttachments = profile.knowledgeAttachments): ResolvedSalesProfile {
   const validated = validateSalesProfileBehavior(behavior);
-  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify(validated))}`;
-  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated });
+  const attachments = validateProfileKnowledgeAttachments(knowledgeAttachments);
+  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify({ behavior: validated, knowledgeAttachments: attachments }))}`;
+  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated, knowledgeAttachments: attachments });
 }
 
 export function isApproved(version: VersionedApproval | undefined): boolean {

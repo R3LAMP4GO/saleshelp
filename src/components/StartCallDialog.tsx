@@ -16,6 +16,7 @@ import { customSalesMeetingMetadata, salesMeetingMetadata, type SalesProspectRef
 import { type CustomSalesProfile } from "../lib/sales/customProfiles";
 import { loadCustomSalesProfiles, loadSalesProfileOverrides } from "../lib/sales/customProfileStore";
 import { isProspectDoNotContact, leadMemory, normalizeProspect } from "../lib/sales/leadMemory";
+import { prepareKnowledgeSession } from "../lib/sales/knowledgeStore";
 import "../../sales-profiles/lotlift/profile";
 
 type Activity = "general" | "sales" | null;
@@ -59,8 +60,9 @@ export function StartCallDialog() {
     }
     setStarting(true);
     setStatus(t("startCall.starting"));
+    const knowledge = selectedResolvedProfile ? await prepareKnowledgeSession(selectedResolvedProfile.knowledgeAttachments) : null;
     const metadata = activity === "sales" && selectedProfile
-      ? salesMeetingMetadata(selectedProfile, normalizedProspect, undefined, selectedResolvedProfile)
+      ? salesMeetingMetadata(selectedProfile, normalizedProspect, undefined, selectedResolvedProfile, knowledge?.references)
       : activity === "sales" && selectedCustomProfile
         ? customSalesMeetingMetadata(selectedCustomProfile, normalizedProspect)
         : undefined;

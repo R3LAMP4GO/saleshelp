@@ -1,6 +1,7 @@
 # Agent guide
 
 See `CLAUDE.md` for project behavior details.
+Read `CONTEXT.md` before naming anything.
 
 - Install: `bun install --frozen-lockfile`
 - Build: `bun run build`

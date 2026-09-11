@@ -1403,6 +1403,7 @@ function ReasoningEffortSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
+          <SelectItem value="none">{t("settings.provider.none")}</SelectItem>
           <SelectItem value="low">{t("settings.provider.low")}</SelectItem>
           <SelectItem value="medium">{t("settings.provider.medium")}</SelectItem>
           <SelectItem value="high">{t("settings.provider.high")}</SelectItem>

@@ -6,6 +6,8 @@ import { buildLotLiftContextPack } from "./contextPack";
 import { normalizeForIntent } from "./intentNormalization";
 import { selectLotLiftNextMove } from "./nextMove";
 import { pendingAnswerFromExecutedMove } from "./pendingAnswer";
+import { buildLotLiftMethodologyContext } from "./methodologyContext";
+import type { KnowledgeSessionSnapshot } from "../sales/knowledgeStore";
 
 const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
 const turn = (id: string, text: string) => ({ id, text, source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 1 });
@@ -49,4 +51,11 @@ it("keeps one profile-driven call state through executed O3, ownership, CRM, and
   expect(pack).toContain("VinSolutions");
   expect(pack).toContain("late sit until the next morning");
   expect(objection.id).not.toBe("identify-owner");
+
+  const source = (id: string, title: string, hash: string, text: string) => ({ source: { id, title, kind: "pdf" as const, createdAt: "2026-09-11T00:00:00.000Z" }, version: { sourceId: id, sha256: hash, byteSize: 100, pageCount: 1, chunkCount: 1, indexVersion: 1 as const, createdAt: "2026-09-11T00:00:00.000Z" }, chunks: [{ id: `${id}:1`, sourceId: id, sourceSha256: hash, sourceTitle: title, pageStart: 1, pageEnd: 1, location: "Page 1", tags: ["objection"], text }], frameworks: [] });
+  const objectionsHash = "c".repeat(64); const executionHash = "d".repeat(64);
+  const knowledge: KnowledgeSessionSnapshot = { references: [], indexes: [source("objections-jeb-blount", "Objections", objectionsHash, "Distinguish a reflex response from a real objection before asking one concise question."), source("cold-calling-sucks", "Cold Calling Sucks", executionHash, "Respect an existing CRM, then ask about the verified after-hours workflow gap.")] };
+  const methodology = buildLotLiftMethodologyContext({ state, turn: turn("p6", "We already have a CRM though."), candidates: [objection], resolvedProfile: profile, knowledge });
+  expect(methodology.frameworks.map((framework) => framework.id)).toContain("existing-solution");
+  expect(methodology.sourceRefs).toEqual(expect.arrayContaining([`objections-jeb-blount@${objectionsHash}`, `cold-calling-sucks@${executionHash}`]));
 });

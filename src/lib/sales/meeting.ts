@@ -1,4 +1,5 @@
 import { customSalesProfileSnapshot, type CustomSalesProfile, type CustomSalesProfileSnapshot } from "./customProfiles";
+import { validateKnowledgeSnapshotReferences, type KnowledgeSnapshotReference } from "./knowledge";
 import { resolveSalesProfile, type ResolvedSalesProfile, type SalesMotion, type SalesProfile } from "./profiles";
 
 export interface SalesProspectReference {
@@ -20,6 +21,8 @@ export interface SalesMeetingMetadata {
   evaluationVersion: string;
   /** Immutable effective built-in behavior, including any local override. */
   resolvedProfile?: ResolvedSalesProfile;
+  /** Immutable source versions selected before the call starts. */
+  knowledgeSnapshots?: readonly KnowledgeSnapshotReference[];
   /** Immutable local source retained with a custom-profile meeting. */
   customProfile?: CustomSalesProfileSnapshot;
   prospect?: SalesProspectReference;
@@ -34,8 +37,11 @@ export function salesRecommendationMetadata(metadata: SalesMeetingMetadata): Sal
   return policy;
 }
 
-export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString(), resolvedProfile = resolveSalesProfile(profile)): SalesMeetingMetadata {
+export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesProspectReference, selectedAt = new Date().toISOString(), resolvedProfile = resolveSalesProfile(profile), knowledgeSnapshots?: readonly KnowledgeSnapshotReference[]): SalesMeetingMetadata {
   if (resolvedProfile.profileId !== profile.id || resolvedProfile.baseVersion !== profile.profile.version) throw new Error("Resolved profile does not match the selected profile.");
+  const snapshots = validateKnowledgeSnapshotReferences(knowledgeSnapshots);
+  const attachedSources = new Set(resolvedProfile.knowledgeAttachments.filter((item) => item.enabled).map((item) => item.sourceId));
+  if (snapshots.some((snapshot) => !attachedSources.has(snapshot.sourceId))) throw new Error("Knowledge snapshot is not enabled for the selected profile.");
   return {
     salesProfileId: profile.id,
     businessId: profile.businessId,
@@ -45,6 +51,7 @@ export function salesMeetingMetadata(profile: SalesProfile, prospect?: SalesPros
     productFactsVersion: profile.productFacts.version,
     evaluationVersion: profile.evaluation.version,
     resolvedProfile,
+    ...(snapshots.length ? { knowledgeSnapshots: snapshots } : {}),
     ...(prospect && Object.values(prospect).some(Boolean) ? { prospect } : {}),
     selectedAt,
   };

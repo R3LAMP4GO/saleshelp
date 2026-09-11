@@ -53,6 +53,7 @@ const AUTHORITY = /\b(?:i\s+(?:make|own|handle)\s+(?:that|the)\s+decision|my\s+d
 const OWNER = /\b(?:i['’]m|i\s+am)\s+(?:the\s+)?(?:owner|gm|general\s+manager|sales\s+manager|internet\s+manager|bdc\s+manager)\b/i;
 const PRICE_CONCERN = /\b(?:too expensive|sounds? expensive|too much money|no budget|can(?:not|'t) afford|costs? too much|(?:price|cost) (?:feels?|sounds?|is) (?:too )?high|how much(?: is it)?|what does (?:it|that) cost|pricing)\b/i;
 const VALUE_UNCERTAINTY = /\b(?:value (?:is )?(?:not |isn['’]?t )?clear|whether (?:the )?value is clear|not sure (?:it['’]?s|it is|this is) worth)\b/i;
+const UNMATCHED_CONCERN = /\b(?:concern(?:ed|ing)?|worr(?:y|ied)|hesitant|uncomfortable|not sure about)\b/i;
 const CRM_MENTION = /\b(?:use|using)\s+([A-Z][A-Za-z0-9-]{2,})(?:\s+CRM)?\b/;
 const AFTER_HOURS_GAP = /\b(?:after hours|overnight).{0,80}\b(?:sit|wait|unworked).{0,80}\b(?:morning|until)/i;
 
@@ -159,6 +160,8 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
     if (hasPain) candidates.push(move("impact-coverage", "Clarify the known coverage gap", "Discuss the stated handoff concern without disparaging the CRM.", "Got it. What happens when that workflow cannot cover an inquiry right away?", stage, "approved-move", [...facts, progress("impact-coverage", "ownership")], "ownership", "existing CRM plus earlier coverage concern"));
     return candidates;
   }
+
+  if (UNMATCHED_CONCERN.test(intentText)) return one("guided-objection-discovery", "Clarify an unfamiliar concern", "Acknowledge the concern and ask one diagnostic question without making a claim.", "That makes sense. What part of that concerns you most?", stage, "approved-move", [...facts, progress("guided-objection-discovery")], undefined, "unmatched prospect concern receives one neutral diagnostic question");
 
   if (PAIN.test(text) && stage !== "meeting-invitation") return one("impact-coverage", "Lead recovery coverage", "Confirm how the stated impact is covered before offering a workflow check.", "It sounds like delayed online inquiries are creating a real impact. When one comes in, who owns it right away, especially after hours?", stage, "approved-move", [...facts, progress("impact-coverage", "ownership")], "ownership");
   if (stage === "owner-identification") return one("identify-owner", "Identify the workflow owner", "Find the person responsible for paid online inquiry coverage.", "Who owns paid online inquiry response there: the internet manager, BDC manager, sales manager, or someone else?", stage, "approved-move", [...facts, progress("identify-owner", "ownership")], "ownership");

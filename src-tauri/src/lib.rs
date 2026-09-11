@@ -15,6 +15,7 @@ mod parakeet;
 mod permissions;
 mod replay;
 mod replay_audio;
+mod sales_knowledge;
 mod transcription;
 mod usage;
 mod voice_typing;
@@ -154,6 +155,9 @@ pub fn run() {
             commands::read_sales_profile_overrides,
             commands::write_sales_profile_overrides,
             commands::read_sales_playbook_source,
+            sales_knowledge::import_sales_knowledge_pdf,
+            sales_knowledge::list_sales_knowledge_sources,
+            sales_knowledge::read_sales_knowledge_version,
             commands::read_log_tail,
             commands::write_session,
             commands::read_session_commands,

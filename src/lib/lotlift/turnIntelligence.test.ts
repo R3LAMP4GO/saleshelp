@@ -41,6 +41,18 @@ describe("LotLift bounded local SalesPilot", () => {
     expect(requests).toBe(0);
   });
 
+  it("uses generic contextual clarification without live book retrieval for a novel objection", async () => {
+    const owner = prospect("owner", "I own the internet-lead workflow.");
+    const turn = prospect("novel-methodology", "I worry the staff will think this is spying.");
+    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
+    const requests: Array<{ system: string; prompt: string }> = [];
+    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async (input) => { requests.push(input); return output("guided-objection-discovery", "That makes sense. What concerns your staff most?", [turn.id]); } });
+    expect(result).toMatchObject({ source: "model", move_id: "guided-objection-discovery" });
+    expect(requests[0]?.system).not.toContain("# Sales Methodology");
+    expect(requests[0]?.prompt).not.toContain("cold-calling-sucks");
+    expect(requests[0]?.prompt).not.toContain("source_support");
+  });
+
   it("shows a deterministic first-refusal fallback and terminates a second substantive refusal", async () => {
     const first = prospect("first", "Thank you, but I'm not interested.");
     const firstCandidates = lotLiftMoveCandidates({ state: newLotLiftCallState("first"), turn: first, conversation: [first] });

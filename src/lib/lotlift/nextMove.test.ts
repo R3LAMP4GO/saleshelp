@@ -131,6 +131,13 @@ describe("LotLift next moves", () => {
     expect(second).toMatchObject({ id: "second-no-close", source: "terminal-policy" });
   });
 
+  it("uses guided objection discovery for a genuinely unmatched concern", () => {
+    const move = select(newLotLiftCallState("novel-concern"), "I worry the staff will think this is spying on them.");
+    expect(move).toMatchObject({ id: "guided-objection-discovery", tactic_id: "concern-isolation", source: "approved-move" });
+    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
+    expect(move.response).not.toMatch(/prove|guarantee|15-minute|price/i);
+  });
+
   it("allows genuine re-engagement after a refusal", () => {
     let state = newLotLiftCallState("re-engagement");
     state = select(state, "No thanks, not interested.").state_events.reduce(reduceLotLiftCallState, state);

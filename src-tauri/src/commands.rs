@@ -125,12 +125,24 @@ struct SalesProfileMoveOverrideRecord {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ProfileKnowledgeAttachmentRecord {
+    source_id: String,
+    enabled: bool,
+    order: usize,
+    priority: usize,
+    role: String,
+    scope: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SalesProfileOverrideRecord {
     profile_id: String,
     base_version: String,
     objective: Option<String>,
     moves: Option<std::collections::BTreeMap<String, SalesProfileMoveOverrideRecord>>,
     runtime_preferences: Option<serde_json::Value>,
+    knowledge_attachments: Option<Vec<ProfileKnowledgeAttachmentRecord>>,
     updated_at: String,
 }
 
@@ -222,6 +234,26 @@ fn validate_sales_profile_overrides(
             })
         {
             return Err("A sales profile override has invalid runtime preferences.".into());
+        }
+        if override_record
+            .knowledge_attachments
+            .as_ref()
+            .is_some_and(|attachments| {
+                attachments.len() > 20
+                    || attachments.iter().any(|attachment| {
+                        !valid_profile_override_id(&attachment.source_id)
+                            || attachment.order > 1_000
+                            || attachment.priority > 100
+                            || !valid_override_text(&attachment.role, 160)
+                            || attachment.scope.len() > 24
+                            || attachment
+                                .scope
+                                .iter()
+                                .any(|scope| !valid_override_text(scope, 80))
+                    })
+            })
+        {
+            return Err("A sales profile override has invalid knowledge attachment.".into());
         }
     }
     Ok(())

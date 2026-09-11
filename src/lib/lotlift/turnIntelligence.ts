@@ -24,6 +24,7 @@ import {
 } from "./responseComposer";
 import type { LotLiftPlaybookRuleId } from "./playbook";
 import type { ResolvedSalesProfile } from "../sales/profiles";
+import { buildLotLiftTurnDirective } from "./turnDirective";
 
 /** The remote default; local Ollama uses its bounded persisted setting instead. */
 export const LOTLIFT_TURN_TIMEOUT_MS = 2_000;
@@ -57,6 +58,12 @@ type LotLiftComposerDiagnostic = {
   profile_snapshot_version?: string;
   response_mode?: string;
   model_used?: boolean;
+  methodology_refs?: readonly string[];
+  source_chunk_count?: number;
+  retrieval_ms?: number;
+  context_build_ms?: number;
+  model_ms?: number;
+  total_contextual_ms?: number;
 };
 
 function logLotLiftComposerDiagnostic(record: LotLiftComposerDiagnostic): void {
@@ -204,10 +211,13 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   const eligibleCandidates = candidates;
   const fallbackMove = eligibleCandidates[0]!;
   const ruleIds = [...new Set([...suppliedRuleIds, ...eligibleCandidates.flatMap((candidate) => candidate.rule_ids)])].slice(0, 3) as LotLiftPlaybookRuleId[];
+  const contextualStartedAt = performance.now();
+  const turnDirectives = Object.fromEntries(eligibleCandidates.map((candidate) => [candidate.id, buildLotLiftTurnDirective({ state, turn, candidate, resolvedProfile: opts.resolvedProfile })]));
   const context = buildLotLiftResponseCompositionContext({
     state, turn, conversation, candidates: eligibleCandidates, responsePolicy: "composable", ruleIds,
-    approvedProductFacts: opts.approvedProductFacts, settings,
+    approvedProductFacts: opts.approvedProductFacts, settings, resolvedProfile: opts.resolvedProfile, turnDirectives,
   });
+  const contextBuildMs = Math.round(performance.now() - contextualStartedAt);
   if (!model && (!settings || !hasProviderKey(settings, "realtime"))) return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "unconfigured");
   if (signal?.aborted) return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "cancelled");
 
@@ -228,8 +238,12 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     profile_snapshot_version: opts.resolvedProfile?.snapshotVersion,
     response_mode: fallbackMove.response_mode,
     model_used: true,
+    methodology_refs: [],
+    source_chunk_count: 0,
+    retrieval_ms: 0,
+    context_build_ms: contextBuildMs,
   };
-  logLotLiftComposerDiagnostic({ event: "request-start", elapsed_ms: 0, ...diagnosticBase });
+  logLotLiftComposerDiagnostic({ event: "request-start", elapsed_ms: contextBuildMs, total_contextual_ms: contextBuildMs, ...diagnosticBase });
   let deadlineExpired = false;
   const abortFromCaller = () => controller.abort(signal?.reason);
   signal?.addEventListener("abort", abortFromCaller, { once: true });
@@ -246,15 +260,16 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   try {
     const output = await Promise.race([run, abortResult]);
     const modelElapsed = Math.round(performance.now() - startedAt);
-    logLotLiftComposerDiagnostic({ event: "model-complete", elapsed_ms: modelElapsed, ...diagnosticBase });
+    const totalContextualMs = Math.round(performance.now() - contextualStartedAt);
+    logLotLiftComposerDiagnostic({ event: "model-complete", elapsed_ms: modelElapsed, model_ms: modelElapsed, total_contextual_ms: totalContextualMs, ...diagnosticBase });
     const validation = validateLotLiftResponseComposition(output, context);
-    logLotLiftComposerDiagnostic({ event: "validation", elapsed_ms: Math.round(performance.now() - startedAt), parsed_output_valid: Boolean(validation.result), validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
+    logLotLiftComposerDiagnostic({ event: "validation", elapsed_ms: Math.round(performance.now() - startedAt), model_ms: modelElapsed, total_contextual_ms: Math.round(performance.now() - contextualStartedAt), parsed_output_valid: Boolean(validation.result), validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
     if (!validation.result) {
-      logLotLiftComposerDiagnostic({ event: "fallback", elapsed_ms: Math.round(performance.now() - startedAt), fallback_reason: "invalid-output", validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
+      logLotLiftComposerDiagnostic({ event: "fallback", elapsed_ms: Math.round(performance.now() - startedAt), model_ms: modelElapsed, total_contextual_ms: Math.round(performance.now() - contextualStartedAt), fallback_reason: "invalid-output", validator_rejection_code: validation.rejection_code, validator_rejection_subreason: validation.rejection_subreason, ...diagnosticBase });
       return result(fallbackMove, fallbackMove.state_events, "fallback", ruleIds, "invalid-output");
     }
     const validated = validation.result;
-    logLotLiftComposerDiagnostic({ event: "complete", elapsed_ms: Math.round(performance.now() - startedAt), parsed_output_valid: true, validator_rejection_code: null, validator_rejection_subreason: null, ...diagnosticBase });
+    logLotLiftComposerDiagnostic({ event: "complete", elapsed_ms: Math.round(performance.now() - startedAt), model_ms: modelElapsed, total_contextual_ms: Math.round(performance.now() - contextualStartedAt), parsed_output_valid: true, validator_rejection_code: null, validator_rejection_subreason: null, ...diagnosticBase });
     const selectedMove = eligibleCandidates.find((candidate) => candidate.id === validated.selected_option.id) ?? fallbackMove;
     return { ...result(selectedMove, validated.state_events, "model", ruleIds), spoken_response: validated.spoken_response ?? undefined };
   } catch (error) {
@@ -269,6 +284,8 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
     logLotLiftComposerDiagnostic({
       event: "fallback",
       elapsed_ms: Math.round(performance.now() - startedAt),
+      model_ms: Math.round(performance.now() - startedAt),
+      total_contextual_ms: Math.round(performance.now() - contextualStartedAt),
       fallback_reason: fallbackReason,
       model_error_code: modelErrorCode,
       error_name: error instanceof Error ? error.name : "UnknownError",

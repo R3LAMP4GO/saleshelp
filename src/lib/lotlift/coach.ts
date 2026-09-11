@@ -52,7 +52,9 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
     const callId = meetingActive && state.meetingId && selectedProfile ? salesProfileId ? state.meetingId : `lotlift-${state.meetingId}` : null;
     if (activeCallId && activeCallId !== callId) { localSelectionAbort?.abort(); localSelectionAbort = null; void callStates.retire(activeCallId); activeCallId = null; newestProspectSegmentId = null; sessionProfile = undefined; processed.clear(); }
     if (!callId) return;
-    if (activeCallId !== callId) sessionProfile = state.salesMetadata?.resolvedProfile;
+    if (activeCallId !== callId) {
+      sessionProfile = state.salesMetadata?.resolvedProfile;
+    }
     activeCallId = callId;
     callStates.activate(callId);
     const speakerChanged = state.selfSpeakerKey !== previous.selfSpeakerKey;

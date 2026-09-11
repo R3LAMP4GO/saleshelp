@@ -15,6 +15,7 @@ vi.mock("../cloud/client", () => ({ cloudToken: () => null, CLOUD_URL: "https://
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getModel, getProviderOptions } from "./provider";
+import { isReasoningModel } from "./providers";
 
 /**
  * Regression guard for the failure the pre-flight coach surfaced as
@@ -59,8 +60,22 @@ describe("getModel credential handling", () => {
   });
 });
 
-describe("Ollama provider options", () => {
-  it("disables hidden qwen reasoning for bounded structured selection", () => {
+describe("OpenAI-compatible provider options", () => {
+  it("recognizes only the supported GPT-5.6 reasoning models", () => {
+    expect(isReasoningModel("gpt-5.6-terra")).toBe(true);
+    expect(isReasoningModel("gpt-5.6-luna")).toBe(true);
+    expect(isReasoningModel("gpt-5.6-sol")).toBe(true);
+    expect(isReasoningModel("gpt-5.6-unlisted")).toBe(false);
+  });
+
+  it("passes Terra's selected no-reasoning setting to the OpenAI-compatible SDK", () => {
+    const settings = settingsFor("openai", "openaiApiKey", "sk-test");
+    settings.models.openai.realtime = "gpt-5.6-terra";
+    settings.reasoningEffort.realtime = "none";
+    expect(getProviderOptions(settings, "realtime")).toEqual({ openai: { reasoningEffort: "none" } });
+  });
+
+  it("disables hidden qwen reasoning for bounded Ollama structured selection", () => {
     expect(getProviderOptions(settingsFor("ollama", "ollamaApiKey", ""), "realtime")).toEqual({ ollama: { think: false } });
   });
 });
