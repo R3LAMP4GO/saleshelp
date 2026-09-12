@@ -43,6 +43,16 @@ describe("LotLift Call State", () => {
     });
   });
 
+  it("does not regress a completed v7 phase when a stale progress event arrives", () => {
+    let state = newLotLiftCallState("phase-monotonic");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle that") });
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Leads wait until morning") });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "workflow-check" });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "right-person-process" });
+
+    expect(deriveLotLiftCallPhase(state)).toBe("MEETING_ASK");
+  });
+
   it("derives stages from verified evidence and records deterministic move progress", () => {
     let state = newLotLiftCallState("call-stage");
     expect(deriveLotLiftConversationStage(state)).toBe("owner-identification");

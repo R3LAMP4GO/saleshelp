@@ -60,16 +60,21 @@ const LONG_TENURE_OR_STATUS_QUO = /\b(?:for\s+(?:\d+|many)\s+years?|for\s+decade
 const AI_SKEPTICISM = /\b(?:ai|artificial intelligence|hype|gimmick|replace\s+(?:my|our|the)?\s*(?:bdc|team|people|staff))\b/i;
 const STAFF_ADOPTION = /\b(?:team\s+(?:already\s+)?ignores?\s+(?:half\s+)?(?:the\s+)?tools|(?:too\s+much\s+)?turnover\s+to\s+train|tried\s+software\s+like\s+this\s+before\s+and\s+nobody\s+used)\b/i;
 const DIRECT_PRODUCT_QUESTION = /(?:\b(?:do|does|can|is|are|what|how|why)\b[^.?!]{0,60}\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b|\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b[^.?!]{0,60}\?)/i;
+const LOTLIFT_PRODUCT_QUESTION = /\b(?:what(?:\s+exactly)?\s+does\s+lotlift\s+do|why\s+would\s+we\s+need\s+(?:this|lotlift))\b/i;
 const SUBSTANTIVE_QUESTION = /\?|\b(?:what|why|how|when|where|who|do|does|can|could|would|will|is|are)\b[^.?!]{0,90}\b(?:you|this|that|it|we|lotlift|help|work|mean|calling|integrat|secure|ai|change|cost)/i;
 const CRM_MENTION = /\b(?:use|using)\s+([A-Z][A-Za-z0-9-]{2,})(?:\s+CRM)?\b/;
 const AFTER_HOURS_GAP = /\b(?:after hours|overnight).{0,80}\b(?:sit|wait|unworked).{0,80}\b(?:morning|until)/i;
+const RESPONSE_SPEED = /\b(?:respond|response|reply|replied|replying).{0,60}\b(?:minutes?|hours?|morning|immediately|quickly|slowly|next day)\b|\b(?:next morning|next day)\b/i;
+const APPOINTMENT_CAPABILITY = /\b(?:book|booking|booked|set|setting|scheduled?|schedule).{0,60}\bappointments?\b|\bappointments?.{0,60}\b(?:book|set|schedule)/i;
+const FOLLOW_UP_PROCESS = /\bfollow[- ]?up\b/i;
+const MEETING_ACCEPTANCE = /\b(?:tuesday|thursday|that works|works for me|sounds good|let'?s do it|book it)\b/i;
 
 function boundedEvidence(turn: TranscriptSegment): string { return turn.text.trim().slice(0, 160); }
 function progress(move_id: string, discovery_dimension?: LotLiftDiscoveryDimension, substantive_refusal = false): CallStateEvent {
   return { type: "coaching-progress", move_id, discovery_dimension, substantive_refusal };
 }
 function baseMove(id: string, title: string, goal: string, response: string, stage: LotLiftConversationStage, source: LotLiftMoveSource, state_events: CallStateEvent[], discovery_dimension?: LotLiftDiscoveryDimension, candidate_reason = "deterministic policy route", profile?: ResolvedSalesProfile, context: ResolvedLotLiftScriptContext = {}): LotLiftNextMove {
-  const configured = applyResolvedLotLiftMove({ id, title, goal, response, fallback_response: response, response_mode: source === "terminal-policy" || ["O2", "O3", "second-no-close"].includes(id) ? "verbatim" : "compose", stage, source, tactic_id: lotLiftTacticForMove(id), rule_ids: [], allowed_claim_classes: [], candidate_reason, approved_strategy: "", prohibited_behavior: "", state_events, discovery_dimension }, profile, context);
+  const configured = applyResolvedLotLiftMove({ id, title, goal, response, fallback_response: response, response_mode: source === "terminal-policy" || ["O2", "O3", "second-no-close", "workflow-check", "v7-product-answer"].includes(id) ? "verbatim" : "compose", stage, source, tactic_id: lotLiftTacticForMove(id), rule_ids: [], allowed_claim_classes: [], candidate_reason, approved_strategy: "", prohibited_behavior: "", state_events, discovery_dimension }, profile, context);
   const speechRejection = liveSpeechRejection(configured.response, id, configured.max_words);
   if (speechRejection) throw new Error(`LotLift move ${id} violates the live-speech contract: ${speechRejection}`);
   const tactic_id = configured.tactic_id;
@@ -104,7 +109,7 @@ export function deriveLotLiftCurrentTurnState(state: LotLiftCallState, turn: Tra
   const evidence = { segment_id: turn.id, text: boundedEvidence(turn) };
   const events = [...assimilatePendingAnswer(state, turn)];
   let derived = events.reduce(reduceLotLiftCallState, state);
-  const capture = (field: "workflow_owner" | "authority" | "current_solution" | "after_hours_process", value: string, replaceVerified = false) => {
+  const capture = (field: "workflow_owner" | "authority" | "current_solution" | "after_hours_process" | "response_speed" | "appointment_capability" | "follow_up_process", value: string, replaceVerified = false) => {
     if (derived[field].status === "verified" && !replaceVerified) return;
     const event: CallStateEvent = { type: "capture", field, fact: { value, status: "verified", evidence } };
     events.push(event);
@@ -121,6 +126,9 @@ export function deriveLotLiftCurrentTurnState(state: LotLiftCallState, turn: Tra
     derived = reduceLotLiftCallState(derived, event);
   }
   if (AFTER_HOURS_GAP.test(text)) capture("after_hours_process", text);
+  if (!/\?\s*$/.test(text) && RESPONSE_SPEED.test(text)) capture("response_speed", text);
+  if (!/\?\s*$/.test(text) && APPOINTMENT_CAPABILITY.test(text)) capture("appointment_capability", text);
+  if (!/\?\s*$/.test(text) && FOLLOW_UP_PROCESS.test(text)) capture("follow_up_process", text);
   return { state: derived, events };
 }
 
@@ -149,6 +157,9 @@ function nextUnresolvedWorkflowQuestion(state: LotLiftCallState): string {
   if (state.lead_arrival_point.status !== "verified") return "Where do those paid online inquiries arrive first today?";
   if (state.current_solution.status !== "verified") return "What system or workflow handles those inquiries today?";
   if (state.after_hours_process.status !== "verified") return "How is coverage handled when an inquiry arrives after hours?";
+  if (state.response_speed.status !== "verified") return "How quickly does someone respond to a new online inquiry?";
+  if (state.appointment_capability.status !== "verified") return "How does that first response move the customer toward an appointment?";
+  if (state.follow_up_process.status !== "verified") return "What follow-up happens when the customer does not respond?";
   if (state.visibility_process.status !== "verified") return "How does the team verify an inquiry was owned and worked?";
   if (!state.pain_points.some((fact) => fact.status === "verified")) return "When that workflow breaks down, what happens to the inquiry or customer?";
   if (state.authority.status !== "verified") return "Are you the person who would decide whether to review that workflow?";
@@ -157,6 +168,7 @@ function nextUnresolvedWorkflowQuestion(state: LotLiftCallState): string {
 
 /** Safe deterministic fallback must address the actual concern rather than restart generic discovery. */
 function contextualFallback(text: string, isPurposeQuestion: boolean, state: LotLiftCallState): string {
+  if (LOTLIFT_PRODUCT_QUESTION.test(text)) return "Basically, we make sure the lead gets a response, somebody owns it, and the customer can move toward an appointment even when your team is busy or the store is closed.";
   if (/\bhow can i help\b/i.test(text)) return `I want to understand the workflow before assuming anything. ${nextUnresolvedWorkflowQuestion(state)}`;
   if (/spying|watching|intrusive/i.test(text)) return "I understand why that could feel like spying. What would be most useful to clarify?";
   if (LONG_TENURE_OR_STATUS_QUO.test(text)) return "I’m not assuming you need to change a process that has worked for years. What would be most useful to clarify?";
@@ -204,6 +216,7 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   const coldCallCard = isIdentityQuestion || isPurposeQuestion ? selectLotLiftColdCallCard(turn, routingState, input.conversation, input.approvedRepIdentity) : null;
   if (coldCallCard?.card.id === "O2") return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", coldCallCard.response, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
   if (coldCallCard?.card.id === "O3") return one("O3", "Purpose and permission", "State the truthful purpose, then learn one workflow fact.", coldCallCard.response, "relevance-discovery", "approved-move", [progress("O3")], undefined, "explicit purpose question follows identity or permission");
+  if (LOTLIFT_PRODUCT_QUESTION.test(text)) return one("v7-product-answer", "Answer the LotLift product question", "Answer the approved product truth, then resume the unresolved objective on the next turn.", contextualFallback(text, false, routingState), stage, "approved-move", facts, undefined, "direct LotLift product question takes precedence over stale discovery");
   const ownershipConfirmedThisTurn = facts.some((event) => event.type === "capture" && event.field === "workflow_owner" && event.fact.status === "verified");
   if (phase === "RIGHT_PERSON" && ownershipConfirmedThisTurn) {
     return one("right-person-process", "Begin right-person process discovery", "Start with the current online-lead process after the prospect confirms responsibility.", "How are you guys handling your online leads right now, especially after hours?", "relevance-discovery", "approved-move", [...facts, progress("right-person-process", "after-hours")], "after-hours", "confirmed right person advances directly to process discovery");
@@ -255,23 +268,23 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
     return candidates;
   }
 
-  if (PAIN.test(text) && stage !== "meeting-invitation") return one("impact-coverage", "Lead recovery coverage", "Confirm how the stated impact is covered before offering a workflow check.", "It sounds like delayed online inquiries are creating a real impact. When one comes in, who owns it right away, especially after hours?", stage, "approved-move", [...facts, progress("impact-coverage", "ownership")], "ownership");
+  if (phase === "MEETING_ASK" && MEETING_ACCEPTANCE.test(text)) return one("terminal-close", "Close after booking", "Confirm the agreed next step and end the call.", "Perfect. I'll send that over. Thanks.", "terminal", "terminal-policy", [...facts, { type: "phase", phase: "TERMINAL" }]);
   if (isContextualResponseEligible(input, currentTurn)) {
     const fallback = contextualFallback(text, isPurposeQuestion, routingState);
     return [baseMove("contextual-response", "Respond to the prospect's context", "Answer or acknowledge the current point safely, then clarify one useful unresolved detail.", fallback, stage, "approved-move", [...facts, progress("contextual-response")], undefined, isDirectQuestion ? "substantive direct question after deterministic and known routes" : "remaining substantive prospect context after deterministic and known routes", input.resolvedProfile, { ...scriptContext, contextualQuestion: fallback })];
   }
-  if (stage === "owner-identification") return one("identify-owner", "Identify the workflow owner", "Find the person responsible for paid online inquiry coverage.", "Who owns paid online inquiry response there: the internet manager, BDC manager, sales manager, or someone else?", stage, "approved-move", [...facts, progress("identify-owner", "ownership")], "ownership");
-  if (stage === "relevance-discovery") return one("lead-source", "Confirm lead sources", "Establish whether paid online inquiries are relevant.", "Which online sources generate most buyer inquiries for you today?", stage, "approved-move", [...facts, progress("lead-source", "lead-source")], "lead-source");
-  if (stage === "gap-confirmation") {
-    const afterHoursKnown = routingState.after_hours_process.status === "verified";
-    const visibilityKnown = routingState.visibility_process.status === "verified";
-    if (!afterHoursKnown && routingState.last_discovery_dimension !== "after-hours") return one("gap-after-hours", "Confirm after-hours coverage", "Learn how paid online inquiries are covered after hours.", "How is coverage handled when an online inquiry arrives after hours or the usual person is off?", stage, "approved-move", [...facts, progress("gap-after-hours", "after-hours")], "after-hours");
-    if (!visibilityKnown) return one("gap-visibility", "Confirm inquiry visibility", "Learn how the team verifies an inquiry was owned and worked.", "How does the team verify that an online inquiry was owned and worked, rather than sitting in an inbox?", stage, "approved-move", [...facts, progress("gap-visibility", "visibility")], "visibility");
-    return one("gap-impact", "Confirm workflow impact", "Learn the impact of any remaining coverage gap before qualifying.", "When that workflow breaks down, what tends to happen to the inquiry or the customer?", stage, "approved-move", [...facts, progress("gap-impact", "pain")], "pain");
-  }
-  if (stage === "qualification") return one("confirm-authority", "Confirm decision ownership", "Confirm who can decide on a workflow check.", "If you found a coverage gap, are you the person who would decide whether to review that workflow?", stage, "approved-move", [...facts, progress("confirm-authority", "authority")], "authority");
-  if (!missingLotLiftTacticContext("scoped-next-step", lotLiftPolicyContext(routingState, turn)).length) return one("workflow-check", "Invite a 15-minute workflow check", "Offer the approved next step after a verified workflow gap, authority, and consent.", "It sounds worth mapping the lead source, ownership, after-hours coverage, and visibility in a short 15-minute workflow check. Would you be open to that?", "meeting-invitation", "approved-move", [...facts, progress("workflow-check")]);
-  return one("confirm-authority", "Confirm decision ownership", "Clarify the remaining decision path before offering a workflow check.", "If you found a coverage gap, are you the person who would decide whether to review that workflow?", "qualification", "approved-move", [...facts, progress("confirm-authority", "authority")], "authority", "scoped next step is missing required context");
+
+  // The durable phase is the sole default router. Objections and direct questions above may interrupt it, never regress it.
+  if (phase === "GATEKEEPER") return one("identify-owner", "Identify the workflow owner", "Find the person responsible for online inquiry coverage.", "Who handles the online leads there?", "owner-identification", "approved-move", [...facts, progress("identify-owner", "ownership")], "ownership");
+  if (phase === "RIGHT_PERSON") return one("right-person-process", "Begin right-person process discovery", "Start with the current online-lead process after responsibility is confirmed.", "How are you guys handling your online leads right now, especially after hours?", "relevance-discovery", "approved-move", [...facts, progress("right-person-process", "after-hours")], "after-hours");
+  if (phase === "GAP_FOUND") return one("workflow-check", "Invite a 15-minute workflow check", "Offer the approved low-risk next step after a verified workflow gap.", "That's really what I wanted to understand. Give me 15 minutes, I'll show you how LotLift handles that piece, and you can tell me if it makes sense. Is Tuesday or Thursday better?", "meeting-invitation", "approved-move", [...facts, progress("workflow-check")], undefined, "verified workflow gap makes the meeting ask preferred");
+  if (phase === "MEETING_ASK") return one("workflow-check", "Repeat the 15-minute workflow check", "Keep the meeting ask available until the prospect accepts, declines, or exits.", "That's really what I wanted to understand. Give me 15 minutes, I'll show you how LotLift handles that piece, and you can tell me if it makes sense. Is Tuesday or Thursday better?", "meeting-invitation", "approved-move", [...facts, progress("workflow-check")]);
+  if (routingState.after_hours_process.status !== "verified") return one("gap-after-hours", "Confirm after-hours coverage", "Learn how online inquiries are covered after hours.", "How is coverage handled when an online inquiry arrives after hours or the usual person is off?", "gap-confirmation", "approved-move", [...facts, progress("gap-after-hours", "after-hours")], "after-hours");
+  if (routingState.response_speed.status !== "verified") return one("gap-after-hours", "Confirm response speed", "Learn how quickly new online inquiries receive a response.", "How quickly does someone respond to a new online inquiry?", "gap-confirmation", "approved-move", [...facts, progress("gap-after-hours", "response-speed")], "response-speed");
+  if (routingState.appointment_capability.status !== "verified") return one("gap-after-hours", "Confirm appointment capability", "Learn how the first response moves a customer toward an appointment.", "How does that first response move the customer toward an appointment?", "gap-confirmation", "approved-move", [...facts, progress("gap-after-hours", "appointment")], "appointment");
+  if (routingState.follow_up_process.status !== "verified") return one("gap-after-hours", "Confirm follow-up", "Learn what happens when a customer does not respond.", "What follow-up happens when the customer does not respond?", "gap-confirmation", "approved-move", [...facts, progress("gap-after-hours", "follow-up")], "follow-up");
+  if (routingState.visibility_process.status !== "verified") return one("gap-visibility", "Confirm inquiry visibility", "Learn how the team verifies an inquiry was owned and worked.", "How does the team verify that an online inquiry was owned and worked, rather than sitting in an inbox?", "gap-confirmation", "approved-move", [...facts, progress("gap-visibility", "visibility")], "visibility");
+  return one("gap-impact", "Confirm workflow impact", "Learn whether the remaining workflow has a real operational gap.", "When that workflow breaks down, what tends to happen to the inquiry or the customer?", "gap-confirmation", "approved-move", [...facts, progress("gap-impact", "pain")], "pain");
 }
 
 /** Compatibility boundary for callers that need the deterministic immediate fallback. */

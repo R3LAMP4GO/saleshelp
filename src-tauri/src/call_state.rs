@@ -81,6 +81,12 @@ pub struct CallState {
     pub lead_arrival_point: FieldValue,
     pub workflow_owner: FieldValue,
     pub after_hours_process: FieldValue,
+    #[serde(default = "FieldValue::unknown")]
+    pub response_speed: FieldValue,
+    #[serde(default = "FieldValue::unknown")]
+    pub appointment_capability: FieldValue,
+    #[serde(default = "FieldValue::unknown")]
+    pub follow_up_process: FieldValue,
     pub visibility_process: FieldValue,
     pub pain_points: Vec<FieldValue>,
     pub quantified_pain: Vec<FieldValue>,
@@ -226,6 +232,9 @@ fn migrate_v2(state: CallStateV2) -> CallState {
         lead_arrival_point: FieldValue::unknown(),
         workflow_owner: FieldValue::unknown(),
         after_hours_process: FieldValue::unknown(),
+        response_speed: FieldValue::unknown(),
+        appointment_capability: FieldValue::unknown(),
+        follow_up_process: FieldValue::unknown(),
         visibility_process: FieldValue::unknown(),
         pain_points: vec![],
         quantified_pain: unknown_list(state.quantified_pain),
@@ -472,6 +481,9 @@ mod tests {
             lead_arrival_point: FieldValue::unknown(),
             workflow_owner: FieldValue::unknown(),
             after_hours_process: FieldValue::unknown(),
+            response_speed: FieldValue::unknown(),
+            appointment_capability: FieldValue::unknown(),
+            follow_up_process: FieldValue::unknown(),
             visibility_process: FieldValue::unknown(),
             pain_points: vec![],
             quantified_pain: vec![],
@@ -515,6 +527,37 @@ mod tests {
                 std::process::id()
             ))
             .join("state.json")
+    }
+
+    #[test]
+    fn round_trips_v7_discovery_facts() {
+        let path = temporary_path();
+        let mut source = state(1);
+        let verified = |value: &str| FieldValue {
+            value: Some(value.into()),
+            status: FactStatus::Verified,
+            evidence: None,
+        };
+        source.response_speed = verified("within five minutes");
+        source.appointment_capability = verified("books appointments");
+        source.follow_up_process = verified("three-day follow-up");
+
+        save_at(&path, &source).unwrap();
+        let restored = load_at(&path).unwrap().unwrap();
+
+        assert_eq!(
+            restored.response_speed.value.as_deref(),
+            Some("within five minutes")
+        );
+        assert_eq!(
+            restored.appointment_capability.value.as_deref(),
+            Some("books appointments")
+        );
+        assert_eq!(
+            restored.follow_up_process.value.as_deref(),
+            Some("three-day follow-up")
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

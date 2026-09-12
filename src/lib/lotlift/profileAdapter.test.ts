@@ -12,7 +12,7 @@ it("uses the editable profile script for every price route", () => {
   expect(priceMove).toBeDefined();
   for (const id of ["price-isolation", "price-pain-value", "price-stakeholder-criteria"] as const) expect(profile.behavior.moves.find((move) => move.id === id)?.script).toBeTruthy();
   const configured = profile.behavior.moves.find((move) => move.id === "price-isolation");
-  expect(configured?.script).toBe("I hear you. Is the concern the monthly spend itself, the setup effort, another option, or whether closing the gap feels worth it?");
+  expect(configured?.script).toBe("Yeah, I get it. Is it that there's no budget for anything new right now, or you haven't seen enough value yet to justify it?");
   const applied = applyResolvedLotLiftMove(priceMove!, profile, {});
   expect(applied.response).toBe(configured?.script);
   expect(applied.fallback_response).toBe(applied.response);

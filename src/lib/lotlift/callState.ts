@@ -32,6 +32,9 @@ export type LotLiftScalarField =
   | "lead_arrival_point"
   | "workflow_owner"
   | "after_hours_process"
+  | "response_speed"
+  | "appointment_capability"
+  | "follow_up_process"
   | "visibility_process"
   | "authority"
   | "urgency"
@@ -77,7 +80,7 @@ export type LotLiftConversationStage =
 /** Persisted v7 call flow. Transitions only advance unless a terminal state takes precedence. */
 export type LotLiftCallPhase = "GATEKEEPER" | "RIGHT_PERSON" | "DISCOVERY" | "GAP_FOUND" | "MEETING_ASK" | "TERMINAL";
 
-export type LotLiftDiscoveryDimension = "lead-source" | "ownership" | "after-hours" | "visibility" | "pain" | "authority" | "urgency";
+export type LotLiftDiscoveryDimension = "lead-source" | "ownership" | "after-hours" | "response-speed" | "appointment" | "follow-up" | "visibility" | "pain" | "authority" | "urgency";
 
 export interface LotLiftCallState {
   schema_version: number;
@@ -94,6 +97,9 @@ export interface LotLiftCallState {
   lead_arrival_point: LotLiftFieldValue<string>;
   workflow_owner: LotLiftFieldValue<string>;
   after_hours_process: LotLiftFieldValue<string>;
+  response_speed: LotLiftFieldValue<string>;
+  appointment_capability: LotLiftFieldValue<string>;
+  follow_up_process: LotLiftFieldValue<string>;
   visibility_process: LotLiftFieldValue<string>;
   pain_points: LotLiftFieldValue<string>[];
   quantified_pain: LotLiftFieldValue<string>[];
@@ -144,6 +150,9 @@ export function newLotLiftCallState(callId: string): LotLiftCallState {
     lead_arrival_point: unknownLotLiftField(),
     workflow_owner: unknownLotLiftField(),
     after_hours_process: unknownLotLiftField(),
+    response_speed: unknownLotLiftField(),
+    appointment_capability: unknownLotLiftField(),
+    follow_up_process: unknownLotLiftField(),
     visibility_process: unknownLotLiftField(),
     pain_points: [],
     quantified_pain: [],
@@ -246,6 +255,14 @@ export function applyLotLiftAiStatePatch(state: LotLiftCallState, patch: Partial
 }
 
 /** Derives the durable v7 phase from terminal state and verified prospect evidence. */
+const LOTLIFT_PHASE_ORDER: Record<LotLiftCallPhase, number> = { GATEKEEPER: 0, RIGHT_PERSON: 1, DISCOVERY: 2, GAP_FOUND: 3, MEETING_ASK: 4, TERMINAL: 5 };
+
+/** Advances the durable v7 flow without allowing stale events to reopen earlier phases. */
+export function advanceLotLiftCallPhase(state: LotLiftCallState, requested: LotLiftCallPhase): LotLiftCallPhase {
+  const current = deriveLotLiftCallPhase(state);
+  return LOTLIFT_PHASE_ORDER[requested] >= LOTLIFT_PHASE_ORDER[current] ? requested : current;
+}
+
 export function deriveLotLiftCallPhase(state: LotLiftCallState): LotLiftCallPhase {
   const verified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
   const anyVerified = (facts: readonly LotLiftFieldValue<string>[]) => facts.some(verified);
@@ -286,22 +303,18 @@ export function reduceLotLiftCallState(state: LotLiftCallState, event: CallState
     }
     case "append": {
       const next = { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
-      return event.field === "pain_points" || event.field === "quantified_pain"
-        ? { ...next, phase: "GAP_FOUND" }
+      return (event.field === "pain_points" || event.field === "quantified_pain") && deriveLotLiftCallPhase(state) !== "GATEKEEPER"
+        ? { ...next, phase: advanceLotLiftCallPhase(state, "GAP_FOUND") }
         : next;
     }
-    case "phase": {
-      const current = deriveLotLiftCallPhase(state);
-      const order: Record<LotLiftCallPhase, number> = { GATEKEEPER: 0, RIGHT_PERSON: 1, DISCOVERY: 2, GAP_FOUND: 3, MEETING_ASK: 4, TERMINAL: 5 };
-      return order[event.phase] >= order[current] ? { ...state, phase: event.phase } : state;
-    }
+    case "phase": return { ...state, phase: advanceLotLiftCallPhase(state, event.phase) };
     case "coaching-progress": {
-      const progressedPhase = event.move_id === "right-person-process" ? "DISCOVERY"
+      const requestedPhase = event.move_id === "right-person-process" ? "DISCOVERY"
         : event.move_id === "workflow-check" ? "MEETING_ASK"
         : state.phase;
       return {
         ...state,
-        phase: progressedPhase,
+        phase: advanceLotLiftCallPhase(state, requestedPhase),
         last_move_id: event.move_id,
         last_discovery_dimension: event.discovery_dimension ?? state.last_discovery_dimension,
         substantive_refusal_count: event.substantive_refusal ? Math.min(2, state.substantive_refusal_count + 1) : state.substantive_refusal_count,

@@ -41,6 +41,17 @@ describe("LotLift bounded local SalesPilot", () => {
     expect(requests).toBe(0);
   });
 
+  it("uses the approved v7 product explanation without requesting a model", async () => {
+    let requests = 0;
+    const owner = prospect("v7-owner", "That's me.");
+    const turn = prospect("v7-product", "What exactly does LotLift do?");
+    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
+    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], settings: repSettings, resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async () => { requests += 1; throw new Error("model must not run"); } });
+
+    expect(result).toMatchObject({ source: "hard-rule", move_id: "v7-product-answer", selected_move: { response: "Basically, we make sure the lead gets a response, somebody owns it, and the customer can move toward an appointment even when your team is busy or the store is closed.", response_mode: "verbatim" } });
+    expect(requests).toBe(0);
+  });
+
   it("uses contextual clarification without live book retrieval for a novel objection", async () => {
     const owner = prospect("owner", "I own the internet-lead workflow.");
     const turn = prospect("novel-methodology", "I worry the staff will think this is spying.");
@@ -379,6 +390,6 @@ describe("LotLift bounded local SalesPilot", () => {
     ]);
     const turn = prospect("ready", "That sounds useful.");
     const result = await run(state, [turn], output("workflow-check", "It sounds worth mapping the workflow in a short 15-minute check. Would you be open to that?", ["ready"]));
-    expect(result).toMatchObject({ source: "model", move_id: "workflow-check" });
+    expect(result).toMatchObject({ source: "hard-rule", move_id: "workflow-check" });
   });
 });

@@ -126,6 +126,21 @@ fn state_from_analysis(analysis: &FinalCallAnalysis) -> CallState {
         lead_arrival_point: analysis.lead_arrival_point.clone(),
         workflow_owner: analysis.workflow_owner.clone(),
         after_hours_process: analysis.after_hours_process.clone(),
+        response_speed: FieldValue {
+            value: None,
+            status: FactStatus::Unknown,
+            evidence: None,
+        },
+        appointment_capability: FieldValue {
+            value: None,
+            status: FactStatus::Unknown,
+            evidence: None,
+        },
+        follow_up_process: FieldValue {
+            value: None,
+            status: FactStatus::Unknown,
+            evidence: None,
+        },
         visibility_process: analysis.visibility_process.clone(),
         pain_points: analysis.pain_points.clone(),
         quantified_pain: analysis.quantified_pain.clone(),

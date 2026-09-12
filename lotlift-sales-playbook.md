@@ -67,7 +67,7 @@ Confirm the request, record do-not-contact, and stop coaching immediately.
 **Category:** capability
 
 ### product:lead-ownership
-**Statement:** LotLift helps teams make lead ownership visible when their team is busy or after hours.
+**Statement:** Basically, we make sure the lead gets a response, somebody owns it, and the customer can move toward an appointment even when your team is busy or the store is closed.
 **Category:** capability
 
 ## Ideal customer and fit

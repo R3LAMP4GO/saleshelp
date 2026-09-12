@@ -149,7 +149,7 @@ export function liveSpeechRejection(response: string, selectedMoveId?: string, m
   const limit = maxWords ?? (selectedMoveId === "O2" ? 15 : 35);
   if (words.length > limit) return selectedMoveId === "O2" ? "identity-too-long" : "too-long";
   const sentences = normalized.split(/[.!?]+/).map((part) => part.replace(/[“”"'’]+/g, "").trim()).filter(Boolean);
-  if (sentences.length > 2) return "too-many-sentences";
+  if (sentences.length > 2 && !["workflow-check", "terminal-close"].includes(selectedMoveId ?? "")) return "too-many-sentences";
   if ((normalized.match(/\?/g) ?? []).length > 1) return "multiple-questions";
   return null;
 }

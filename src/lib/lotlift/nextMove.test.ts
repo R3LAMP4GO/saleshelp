@@ -13,7 +13,7 @@ describe("LotLift next moves", () => {
   it("always returns an approved context-aware response for an unmatched prospect turn", () => {
     const move = select(newLotLiftCallState("unmatched"), "Can you explain what you mean?");
     expect(move).toMatchObject({ id: "identify-owner", source: "approved-move" });
-    expect(move.response).toContain("Who owns paid online inquiry response");
+    expect(move.response).toBe("Who handles the online leads there?");
   });
 
   it.each(["I'm in charge of it.", "That falls under me.", "Online leads are mine.", "Yeah, I handle that."])("verifies an explicit ownership confirmation: %s", (text) => {
@@ -36,6 +36,33 @@ describe("LotLift next moves", () => {
     expect(candidates[0]?.response).toBe("How are you guys handling your online leads right now, especially after hours?");
   });
 
+  it("routes the complete durable phase flow through discovery, meeting, and terminal exit", () => {
+    let state = newLotLiftCallState("v7-phase-e2e");
+    expect(select(state, "Hello.").id).toBe("identify-owner");
+
+    const ownerTurn = turn("That's me.", "v7-owner");
+    const rightPerson = lotLiftMoveCandidates({ state, turn: ownerTurn, conversation: [ownerTurn] })[0]!;
+    state = rightPerson.state_events.reduce(reduceLotLiftCallState, state);
+    expect(deriveLotLiftCallPhase(state)).toBe("DISCOVERY");
+
+    for (const [field, value] of [["after_hours_process", "The BDC covers after hours."], ["response_speed", "We respond within five minutes."], ["appointment_capability", "We book appointments."], ["follow_up_process", "We follow up for three days."], ["visibility_process", "We audit the inbox."]] as const) {
+      state = reduceLotLiftCallState(state, { type: "capture", field, fact: verified(value) });
+    }
+    expect(select(state, "Okay.").id).toBe("gap-impact");
+
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Late leads wait until morning.") });
+    expect(deriveLotLiftCallPhase(state)).toBe("GAP_FOUND");
+    const meeting = select(state, "Okay.");
+    expect(meeting.id).toBe("workflow-check");
+    state = meeting.state_events.reduce(reduceLotLiftCallState, state);
+    expect(deriveLotLiftCallPhase(state)).toBe("MEETING_ASK");
+
+    const booked = select(state, "Tuesday works for me.");
+    expect(booked).toMatchObject({ id: "terminal-close", source: "terminal-policy" });
+    state = booked.state_events.reduce(reduceLotLiftCallState, state);
+    expect(deriveLotLiftCallPhase(state)).toBe("TERMINAL");
+  });
+
   it("updates verified ownership only from an explicit correction", () => {
     let state = newLotLiftCallState("owner-correction");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("Jordan handles paid online leads.", "jordan") });
@@ -44,17 +71,64 @@ describe("LotLift next moves", () => {
     expect(current.state.workflow_owner).toMatchObject({ status: "verified", value: "Actually, Sarah handles paid online leads.", evidence: { segment_id: "sarah" } });
   });
 
+  it("moves a verified workflow gap directly to the approved 15-minute meeting ask", () => {
+    let state = newLotLiftCallState("gap-to-meeting");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle online leads.", "owner") });
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Online leads wait until the next morning.", "gap") });
+
+    const move = select(state, "Usually somebody gets to them the next morning.");
+
+    expect(deriveLotLiftCallPhase(state)).toBe("GAP_FOUND");
+    expect(move).toMatchObject({ id: "workflow-check", source: "approved-move", stage: "meeting-invitation" });
+    expect(move.response).toBe("That's really what I wanted to understand. Give me 15 minutes, I'll show you how LotLift handles that piece, and you can tell me if it makes sense. Is Tuesday or Thursday better?");
+  });
+
+  it("answers the approved LotLift product question without restarting ownership discovery", () => {
+    let state = newLotLiftCallState("product-question");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("That's me.", "owner") });
+
+    const move = select(state, "What exactly does LotLift do?");
+
+    expect(move).toMatchObject({ id: "v7-product-answer", source: "approved-move" });
+    expect(move.response).toBe("Basically, we make sure the lead gets a response, somebody owns it, and the customer can move toward an appointment even when your team is busy or the store is closed.");
+    expect(move.response).not.toMatch(/who owns|who handles/i);
+  });
+
+  it("captures response speed, appointment capability, and follow-up once without repeating verified diagnostics", () => {
+    let state = newLotLiftCallState("diagnostic-progression");
+    for (const [field, value] of [["workflow_owner", "I handle online leads."], ["lead_arrival_point", "They arrive in VinSolutions."], ["current_solution", "VinSolutions"], ["after_hours_process", "We cover after-hours leads."]] as const) {
+      state = reduceLotLiftCallState(state, { type: "capture", field, fact: verified(value) });
+    }
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "right-person-process" });
+
+    const speed = deriveLotLiftCurrentTurnState(state, turn("We respond within five minutes.", "speed"));
+    expect(speed.state.response_speed).toMatchObject({ status: "verified", value: "We respond within five minutes." });
+    expect(speed.events.filter((event) => event.type === "capture" && event.field === "response_speed")).toHaveLength(1);
+    state = speed.state;
+    expect(select(state, "Okay.").response).toBe("How does that first response move the customer toward an appointment?");
+
+    const appointments = deriveLotLiftCurrentTurnState(state, turn("We book appointments from that response.", "appointments"));
+    expect(appointments.state.appointment_capability).toMatchObject({ status: "verified" });
+    state = appointments.state;
+    expect(select(state, "Okay.").response).toBe("What follow-up happens when the customer does not respond?");
+
+    const followUp = deriveLotLiftCurrentTurnState(state, turn("We follow up for three days.", "follow-up"));
+    expect(followUp.state.follow_up_process).toMatchObject({ status: "verified" });
+    expect(followUp.events.filter((event) => event.type === "capture" && event.field === "follow_up_process")).toHaveLength(1);
+    expect(select(followUp.state, "Okay.").response).toBe("How does the team verify that an online inquiry was owned and worked, rather than sitting in an inbox?");
+  });
+
   it("uses a distinct lead-recovery coverage move instead of the generic question", () => {
     const move = select(newLotLiftCallState("recovery"), "We lose online leads overnight when nobody owns them.");
-    expect(move).toMatchObject({ id: "impact-coverage", discovery_dimension: "ownership" });
-    expect(move.response).toContain("especially after hours");
+    expect(move).toMatchObject({ id: "identify-owner", discovery_dimension: "ownership" });
+    expect(move.response).toBe("Who handles the online leads there?");
     expect(move.response).not.toContain("What matters most");
   });
 
   it("selects impact coverage for the reported lost-lead recovery wording", () => {
     const move = select(newLotLiftCallState("lost-leads"), "I mean, to be honest, what matters most is if I can recover even that small sliver of leads I've already lost.");
-    expect(move).toMatchObject({ id: "impact-coverage", discovery_dimension: "ownership", source: "approved-move" });
-    expect(move.response).toContain("after hours");
+    expect(move).toMatchObject({ id: "identify-owner", discovery_dimension: "ownership", source: "approved-move" });
+    expect(move.response).toBe("Who handles the online leads there?");
     expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
     expect(move.response).not.toMatch(/15-minute|guarantee|\$\d/i);
   });
@@ -189,19 +263,19 @@ describe("LotLift next moves", () => {
     state = reduceLotLiftCallState(state, { type: "capture", field: "authority", fact: verified("I make the decision") });
     const move = select(state, "Yes, that is the problem.");
     expect(move).toMatchObject({ id: "workflow-check", stage: "meeting-invitation" });
-    expect(move.response).toContain("15-minute workflow check");
-    expect(move.response).not.toMatch(/Tuesday|Thursday|calendar/i);
+    expect(move.response).toContain("Give me 15 minutes");
+    expect(move.response).toContain("Tuesday or Thursday");
   });
 
-  it("keeps a meeting ask behind explicit prospect consent", () => {
+  it("prefers the meeting ask once a workflow gap is verified", () => {
     let state = newLotLiftCallState("no-consent");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("BDC manager") });
     state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("AutoTrader") });
     state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Online inquiries wait overnight") });
     state = reduceLotLiftCallState(state, { type: "capture", field: "authority", fact: verified("I make the decision") });
     const move = select(state, "I am not sure.");
-    expect(move).toMatchObject({ id: "confirm-authority", tactic_id: "solution-verification" });
-    expect(move.response).not.toContain("15-minute");
+    expect(move).toMatchObject({ id: "workflow-check", tactic_id: "scoped-next-step" });
+    expect(move.response).toContain("Give me 15 minutes");
   });
 
   it("advances a factual-only answer through ordinary discovery", () => {
@@ -211,7 +285,7 @@ describe("LotLift next moves", () => {
     const prospect = turn("We get a mix from the usual sites.", "neutral-context");
     const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: profile });
 
-    expect(move).toMatchObject({ id: "lead-source", discovery_dimension: "lead-source", source: "approved-move" });
+    expect(move).toMatchObject({ id: "right-person-process", discovery_dimension: "after-hours", source: "approved-move" });
     expect(move.id).not.toBe("contextual-response");
   });
 
@@ -265,8 +339,11 @@ describe("LotLift next moves", () => {
   it("skips verified after-hours coverage and advances to visibility", () => {
     let state = newLotLiftCallState("after-hours-complete");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "right-person-process" });
     state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("Cars.com", "source") });
-    state = reduceLotLiftCallState(state, { type: "capture", field: "after_hours_process", fact: verified("The BDC covers after hours.", "after-hours") });
+    for (const [field, value] of [["after_hours_process", "The BDC covers after hours."], ["response_speed", "We reply within five minutes."], ["appointment_capability", "We book appointments."], ["follow_up_process", "We follow up for three days."]] as const) {
+      state = reduceLotLiftCallState(state, { type: "capture", field, fact: verified(value, field) });
+    }
     const move = selectLotLiftNextMove({ state, turn: turn("Mostly Cars.com and CarGurus.", "factual"), conversation: [], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
 
     expect(move).toMatchObject({ id: "gap-visibility", discovery_dimension: "visibility" });
@@ -316,12 +393,14 @@ describe("LotLift next moves", () => {
   it("advances unmatched discovery turns without repeating a dimension", () => {
     let state = newLotLiftCallState("discovery");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("Internet manager") });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "right-person-process" });
     state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("Cars.com") });
     const first = select(state, "I am not sure.");
     state = reduceLotLiftCallState(state, first.state_events.find((event) => event.type === "coaching-progress")!);
+    state = reduceLotLiftCallState(state, { type: "capture", field: "after_hours_process", fact: verified("The BDC covers after hours.") });
     const second = select(state, "Can you explain?");
     expect(first.discovery_dimension).toBe("after-hours");
-    expect(second.discovery_dimension).toBe("visibility");
+    expect(second.response).toBe("How quickly does someone respond to a new online inquiry?");
   });
 
   it.each([
