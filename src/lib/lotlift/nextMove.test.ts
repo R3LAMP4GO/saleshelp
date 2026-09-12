@@ -111,6 +111,7 @@ describe("LotLift next moves", () => {
     const prospect = turn("We already use VinSolutions CRM.");
     const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
     expect(move).toMatchObject({ id: "crm-coverage", source: "approved-move" });
+    expect(move.response).not.toMatch(/what (?:system|crm)|which crm|what do you use/i);
   });
 
   it("clarifies a direct price question before quoting or negotiating", () => {
@@ -175,19 +176,45 @@ describe("LotLift next moves", () => {
     expect(move.response).not.toContain("15-minute");
   });
 
-  it("selects the profile-governed generic move before the ordinary stage fallback", () => {
-    let state = newLotLiftCallState("generic-context");
+  it("advances a factual-only answer through ordinary discovery", () => {
+    let state = newLotLiftCallState("factual-answer");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
     const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
     const prospect = turn("We get a mix from the usual sites.", "neutral-context");
     const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: profile });
 
-    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer", source: "approved-move", candidate_reason: expect.stringContaining("contextual concern") });
-    expect(move.response).toBe("I want to understand that before assuming anything. What would be most useful to clarify?");
-    expect(move.response.split(/[.!?]+/).filter(Boolean)).toHaveLength(2);
-    expect((move.response.match(/\?/g) ?? [])).toHaveLength(1);
-    expect(move.response).not.toMatch(/automation|results|monitoring|staff replacement|pricing|integration|security|guarantee/i);
-    expect(move.state_events).toContainEqual(expect.objectContaining({ type: "coaching-progress", move_id: "contextual-response" }));
+    expect(move).toMatchObject({ id: "lead-source", discovery_dimension: "lead-source", source: "approved-move" });
+    expect(move.id).not.toBe("contextual-response");
+  });
+
+  it.each(["I don’t understand.", "Tell me more."])("handles an unrecognized substantive request before discovery: %s", (text) => {
+    let state = newLotLiftCallState(`contextual-${text}`);
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    const prospect = turn(text, `request-${text}`);
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer" });
+    expect(move.id).not.toBe("lead-source");
+  });
+
+  it("answers a direct question even when the same turn verifies ownership", () => {
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const prospect = turn("I'm the owner. Why are you calling?", "owner-question");
+    const move = selectLotLiftNextMove({ state: newLotLiftCallState("owner-question"), turn: prospect, conversation: [prospect], resolvedProfile: profile });
+
+    expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer" });
+    expect(move.response).not.toMatch(/who owns|is that you/i);
+  });
+
+  it("does not restart CRM discovery after the CRM is verified", () => {
+    let state = newLotLiftCallState("crm-repeat");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle them.", "owner") });
+    state = reduceLotLiftCallState(state, { type: "capture", field: "current_solution", fact: verified("VinSolutions", "crm") });
+    const prospect = turn("Can you explain how this would work with our process?", "crm-question");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "contextual-response" });
+    expect(move.response).not.toMatch(/what (?:system|crm)|which crm|what do you use/i);
   });
 
   it.each([

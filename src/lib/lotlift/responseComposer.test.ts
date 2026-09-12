@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { LOTLIFT_COLD_OUTBOUND_PROFILE } from "../../../sales-profiles/lotlift/profile";
-import { newLotLiftCallState } from "./callState";
+import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
 import { lotLiftMoveCandidates } from "./nextMove";
 import {
   LOTLIFT_RESPONSE_COMPOSER_SYSTEM,
@@ -58,4 +58,28 @@ it("cannot use methodology as grounding or memory evidence", () => {
   expect(composition).toMatchObject({ result: null, rejection_code: "schema" });
   expect(observationExtractionPrompt(context())).not.toContain("book-only sentence");
   expect(validateLotLiftObservationExtraction({ observations: [{ field: "pain_points", value: "book-only sentence", evidence_segment_id: "cold-calling-sucks:3" }] }, context())).toBeNull();
+});
+
+it.each([
+  "Since you handle the internet-lead workflow, LotLift can help make lead ownership visible when the team is busy or after hours. Where do your paid online inquiries arrive?",
+  "Since you handle the internet-lead workflow, LotLift can help make ownership visible for approved inbound leads when the team is busy or after hours. Where do those paid inquiries arrive today?",
+])( "rejects an unsupported ownership-visibility capability claim: %s", (spoken_response) => {
+  const owner: TranscriptSegment = { ...turn, id: "owner-evidence", text: "I handle the internet-lead workflow." };
+  const direct: TranscriptSegment = { ...turn, id: "help-question", text: "How would that actually help us?" };
+  const ownerState = reduceLotLiftCallState(newLotLiftCallState("visibility-claim"), { type: "capture", field: "workflow_owner", fact: { value: owner.text, status: "verified", evidence: { segment_id: owner.id, text: owner.text } } });
+  const directCandidates = lotLiftMoveCandidates({ state: ownerState, turn: direct, conversation: [owner, direct], resolvedProfile });
+  const directContext = buildLotLiftResponseCompositionContext({ state: ownerState, turn: direct, conversation: [owner, direct], candidates: directCandidates, responsePolicy: "composable", resolvedProfile });
+
+  const composition = validateLotLiftResponseComposition({ selected_move_id: "contextual-response", grounding_segment_ids: [owner.id, direct.id], spoken_response }, directContext);
+  expect(composition).toMatchObject({ result: null, rejection_code: "spoken-response", rejection_subreason: "prohibited-commercial-claim" });
+});
+
+it("rejects a contextual response that omits the latest prospect citation", () => {
+  const earlier: TranscriptSegment = { ...turn, id: "prospect-earlier", text: "We use VinSolutions." };
+  const direct: TranscriptSegment = { ...turn, id: "prospect-direct", text: "Can this integrate with our CRM?" };
+  const directCandidates = lotLiftMoveCandidates({ state, turn: direct, conversation: [earlier, direct], resolvedProfile });
+  const directContext = buildLotLiftResponseCompositionContext({ state, turn: direct, conversation: [earlier, direct], candidates: directCandidates, responsePolicy: "composable", resolvedProfile });
+
+  const composition = validateLotLiftResponseComposition({ selected_move_id: "contextual-response", grounding_segment_ids: [earlier.id], spoken_response: "I don’t want to assume integration details. What would be useful to clarify?" }, directContext);
+  expect(composition).toMatchObject({ result: null, rejection_code: "grounding" });
 });

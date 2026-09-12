@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
-import { assimilatePendingAnswer, pendingAnswerFromExecutedMove } from "./pendingAnswer";
+import { assimilatePendingAnswer, pendingAnswerFromActualRepSpeech, pendingAnswerFromExecutedMove } from "./pendingAnswer";
+import { LOTLIFT_COLD_OUTBOUND_PROFILE } from "../../../sales-profiles/lotlift/profile";
+import { resolveSalesProfile } from "../sales/profiles";
 import { lotLiftMoveCandidates } from "./nextMove";
 
 const repMove = { id: "O3", expectedAnswer: { kind: "confirmation" as const, targetField: "workflow_owner" } };
@@ -12,6 +14,17 @@ function pending(move: { id: string; expectedAnswer: { kind: "confirmation" | "f
 }
 
 describe("pending profile answers", () => {
+  it("creates pending-answer state only from finalized actual representative speech", () => {
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const state = newLotLiftCallState("actual-rep-speech");
+    const repQuestion = { id: "rep-owner", text: "Who handles paid online inquiry response here?", source: "me" as const, speaker: 1, isFinal: true, startMs: 0, endMs: 1 };
+
+    expect(pendingAnswerFromActualRepSpeech(profile, state, repQuestion)).toMatchObject({ rep_segment_id: "rep-owner", move_id: "O3", target_field: "workflow_owner" });
+    expect(pendingAnswerFromActualRepSpeech(profile, state, { ...repQuestion, isFinal: false })).toBeNull();
+    expect(pendingAnswerFromActualRepSpeech(profile, state, { ...repQuestion, source: "them" })).toBeNull();
+    expect(state.pending_answer).toBeNull();
+  });
+
   it("does not create a pending answer from a displayed recommendation", () => {
     expect(newLotLiftCallState("display-only").pending_answer).toBeNull();
   });

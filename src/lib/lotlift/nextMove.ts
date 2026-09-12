@@ -57,6 +57,9 @@ const LONG_TENURE_OR_STATUS_QUO = /\b(?:for\s+(?:\d+|many)\s+years?|for\s+decade
 const AI_SKEPTICISM = /\b(?:ai|artificial intelligence|hype|gimmick|replace\s+(?:my|our|the)?\s*(?:bdc|team|people|staff))\b/i;
 const STAFF_ADOPTION = /\b(?:team\s+(?:already\s+)?ignores?\s+(?:half\s+)?(?:the\s+)?tools|(?:too\s+much\s+)?turnover\s+to\s+train|tried\s+software\s+like\s+this\s+before\s+and\s+nobody\s+used)\b/i;
 const DIRECT_PRODUCT_QUESTION = /(?:\b(?:do|does|can|is|are|what|how|why)\b[^.?!]{0,60}\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b|\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b[^.?!]{0,60}\?)/i;
+const SUBSTANTIVE_QUESTION = /\?|\b(?:what|why|how|when|where|who|do|does|can|could|would|will|is|are)\b[^.?!]{0,90}\b(?:you|this|that|it|we|lotlift|help|work|mean|calling|integrat|secure|ai|change|cost)/i;
+const CONTEXTUAL_CONCERN = /\b(?:spying|watching|intrusive|worr(?:y|ied)|concern(?:ed)?|skepti(?:c|cal)|hype|gimmick|worked for|happy with|why would we change|not sure|doesn['’]?t make sense|don['’]?t understand|confus(?:ed|ing))\b/i;
+const DIRECT_REQUEST = /\b(?:tell|explain|walk)\s+(?:me|us)\s+(?:more|through)|\b(?:go on|say more|help me understand)\b/i;
 const CRM_MENTION = /\b(?:use|using)\s+([A-Z][A-Za-z0-9-]{2,})(?:\s+CRM)?\b/;
 const AFTER_HOURS_GAP = /\b(?:after hours|overnight).{0,80}\b(?:sit|wait|unworked).{0,80}\b(?:morning|until)/i;
 
@@ -119,10 +122,20 @@ export function deriveLotLiftCurrentTurnState(state: LotLiftCallState, turn: Tra
   return { state: derived, events };
 }
 
-function isContextualResponseEligible(input: LotLiftMoveCandidateInput, hasCurrentFact: boolean): boolean {
+function isSubstantiveQuestion(text: string): boolean {
+  return SUBSTANTIVE_QUESTION.test(text);
+}
+
+function isContextualConcern(text: string): boolean {
+  return CONTEXTUAL_CONCERN.test(text) || DIRECT_REQUEST.test(text) || LONG_TENURE_OR_STATUS_QUO.test(text) || DIRECT_PRODUCT_QUESTION.test(text);
+}
+
+/** A factual answer advances the current stage; a question or concern needs a response first. */
+function isContextualResponseEligible(input: LotLiftMoveCandidateInput): boolean {
   const hasConfiguredMove = input.resolvedProfile?.behavior.moves.some((move) => move.id === "contextual-response");
   const substantiveTurn = (input.turn.text.match(/[\p{L}\p{N}]+/gu)?.length ?? 0) >= 3;
-  return Boolean(hasConfiguredMove && input.turn.isFinal && input.turn.source === "them" && substantiveTurn && !hasCurrentFact);
+  return Boolean(hasConfiguredMove && input.turn.isFinal && input.turn.source === "them" && substantiveTurn
+    && (isSubstantiveQuestion(input.turn.text) || isContextualConcern(input.turn.text)));
 }
 
 /** Safe deterministic fallback must address the actual concern rather than restart generic discovery. */
@@ -131,6 +144,7 @@ function contextualFallback(text: string, isPurposeQuestion: boolean): string {
   if (LONG_TENURE_OR_STATUS_QUO.test(text)) return "I’m not assuming you need to change a process that has worked for years. What would be most useful to clarify?";
   if (/\b(?:ai|artificial intelligence)\b/i.test(text)) return "Fair question about AI—I don’t want to assume how it would fit your workflow. What would be most useful to clarify?";
   if (/\b(?:secure|security)\b/i.test(text)) return "I don’t want to assume details about security. What would be most useful to clarify?";
+  if (/\b(?:integrat(?:e|ion)|crm|dms)\b/i.test(text)) return "I don’t want to assume integration details. What would be most useful to clarify?";
   if (/\buseful\b/i.test(text)) return "Fair question about what would be useful—I don’t want to assume. What would be most useful to clarify?";
   if (/\bhelp\b/i.test(text)) return "Fair question about how this could help—I don’t want to assume. What would be most useful to clarify?";
   if (isPurposeQuestion) return "I’m calling to understand the online inquiry workflow, not assume it needs changing. What would be most useful to clarify?";
@@ -167,7 +181,7 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
 
   const isIdentityQuestion = /\b(?:who (?:is|are) this|who(?:'s| is) this|who are you)\b/.test(intentText);
   const isPurposeQuestion = /\b(?:what(?:'s| is) this (?:about|regarding)|why (?:are you|did you)(?: call| calling)|how can i help)\b/.test(intentText);
-  const isDirectQuestion = isPurposeQuestion || /\b(?:what exactly do you do|why should i care|what are you (?:actually )?trying to sell|how does that help|why are you asking)\b/.test(intentText);
+  const isDirectQuestion = isPurposeQuestion || isSubstantiveQuestion(text) || /\b(?:what exactly do you do|why should i care|what are you (?:actually )?trying to sell|how does that help|why are you asking)\b/.test(intentText);
   const coldCallCard = isIdentityQuestion || isPurposeQuestion ? selectLotLiftColdCallCard(turn, routingState, input.conversation, input.approvedRepIdentity) : null;
   if (coldCallCard?.card.id === "O2") return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", coldCallCard.response, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
   if (coldCallCard?.card.id === "O3") return one("O3", "Purpose and permission", "State the truthful purpose, then learn one workflow fact.", coldCallCard.response, "relevance-discovery", "approved-move", [progress("O3")], undefined, "explicit purpose question follows identity or permission");
@@ -219,7 +233,7 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   }
 
   if (PAIN.test(text) && stage !== "meeting-invitation") return one("impact-coverage", "Lead recovery coverage", "Confirm how the stated impact is covered before offering a workflow check.", "It sounds like delayed online inquiries are creating a real impact. When one comes in, who owns it right away, especially after hours?", stage, "approved-move", [...facts, progress("impact-coverage", "ownership")], "ownership");
-  if (isContextualResponseEligible(input, facts.some((event) => event.type === "capture" || event.type === "append"))) {
+  if (isContextualResponseEligible(input)) {
     const fallback = contextualFallback(text, isPurposeQuestion);
     return [baseMove("contextual-response", "Respond to the prospect's context", "Answer or acknowledge the current point safely, then clarify one useful unresolved detail.", fallback, stage, "approved-move", [...facts, progress("contextual-response")], undefined, isDirectQuestion ? "substantive direct question after deterministic and known routes" : "substantive contextual concern after deterministic and known routes", input.resolvedProfile, { ...scriptContext, contextualQuestion: fallback })];
   }

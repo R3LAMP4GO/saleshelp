@@ -37,5 +37,7 @@ it("uses the profile strategy for contextual trust concerns without a framework"
   const directive = buildLotLiftTurnDirective({ state, turn: objection, candidate, resolvedProfile: profile, framework: { id: "disarm-and-diagnose" } });
   expect(directive.methodology_framework_id).toBeUndefined();
   expect(directive.approach).toContain("Answer an explicit question first, or acknowledge the stated concern without arguing.");
+  expect(directive.approach).toContain("DISARM: acknowledge the latest prospect point directly.");
+  expect(directive.avoid).toContain("Do not re-ask verified ownership, CRM, after-hours, or authority details.");
   expect(directive.max_questions).toBe(1);
 });

@@ -20,13 +20,14 @@ it("uses the editable profile script for every price route", () => {
 
 it("uses the profile-owned contextual fallback without unresolved template variables", () => {
   const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
-  const neutral = { id: "neutral", text: "We get a mix from the usual sites.", source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 1 };
+  const neutral = { id: "neutral", text: "Can this integrate with our CRM?", source: "them" as const, speaker: 0, isFinal: true, startMs: 0, endMs: 1 };
   let state = newLotLiftCallState("generic");
   state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: { value: "I handle paid inquiries.", status: "verified", evidence: { segment_id: "owner", text: "I handle paid inquiries." } } });
   const genericMove = lotLiftMoveCandidates({ state, turn: neutral, conversation: [neutral], resolvedProfile: profile })[0]!;
 
   const applied = applyResolvedLotLiftMove(genericMove, profile, {});
   expect(genericMove.id).toBe("contextual-response");
+  expect(genericMove.response).toContain("integration details");
   expect(applied.response).toBe(genericMove.response);
   expect(applied.fallback_response).toBe(genericMove.response);
 });

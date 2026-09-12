@@ -51,8 +51,8 @@ export function buildLotLiftTurnDirective(input: { state: LotLiftCallState; turn
   const contextual = input.candidate.id === "contextual-response";
   return Object.freeze({
     objective: strategy?.objective ?? input.candidate.goal,
-    approach: Object.freeze(contextual ? [...approach, "Open by directly addressing one concrete detail from the prospect's latest turn before asking the next question.", "For a direct question, give a truthful answer or limitation before the follow-up question."] : [...approach]),
-    avoid: Object.freeze(contextual ? [...avoid, "Do not restate a verified ownership confirmation or restart the owner-discovery question."] : [...avoid]),
+    approach: Object.freeze(contextual ? [...approach, "DISARM: acknowledge the latest prospect point directly.", "UNDERSTAND: use cited current-turn and verified call context without treating it as a new question.", "ADVANCE: give the smallest truthful answer or limitation before one useful follow-up toward the active objective."] : [...approach]),
+    avoid: Object.freeze(contextual ? [...avoid, "Do not re-ask verified ownership, CRM, after-hours, or authority details."] : [...avoid]),
     relevant_call_evidence: evidence(input.state, input.turn),
     desired_progression: strategy?.desiredProgression ?? "Understand the concern before advancing the call.",
     max_questions: 1,

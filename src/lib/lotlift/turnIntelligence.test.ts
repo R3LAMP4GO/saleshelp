@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState, type CallStateEvent } from "./callState";
 import { lotLiftMoveCandidates } from "./nextMove";
 import { buildLotLiftResponseCompositionContext, validateLotLiftObservationExtraction } from "./responseComposer";
@@ -53,29 +53,99 @@ describe("LotLift bounded local SalesPilot", () => {
     expect(requests[0]?.prompt).not.toContain("source_support");
   });
 
+  it("sends complete contextual composition contracts in production Terra requests", async () => {
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const owner = prospect("contract-owner", "I manage our paid online inquiries.", 0);
+    const crm = prospect("contract-crm", "We use VinSolutions for those leads.", 500);
+    const repTurn = rep("contract-rep", "Thanks for explaining that.", 750);
+    const afterHours = prospect("contract-after-hours", "After hours, some inquiries wait until morning.", 1_000);
+    const state = stateWith([
+      scalar("workflow_owner", owner.text, owner.id),
+      scalar("current_solution", "VinSolutions", crm.id),
+      scalar("after_hours_process", afterHours.text, afterHours.id),
+    ]);
+    const transcripts = [
+      ["contract-understand", "I don’t understand what you mean."],
+      ["contract-more", "Tell me more."],
+      ["contract-trust", "My staff may think this is spying."],
+      ["contract-tenure", "We have handled it ourselves for 15 years."],
+    ] as const;
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push(request);
+      const messages = request.messages as Array<{ role: string; content: string }>;
+      const prompt = messages.find((message) => message.role === "user")!.content;
+      const context = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only."))) as { latest_prospect_turn: { id: string; text: string } };
+      const response = /spying/i.test(context.latest_prospect_turn.text)
+        ? "I understand why spying could concern them. What would be most useful to clarify?"
+        : /15 years/i.test(context.latest_prospect_turn.text)
+          ? "I won’t assume a process that worked for years needs changing. What would be useful to clarify?"
+          : "I want to understand that before assuming anything. What would be most useful to clarify?";
+      return new Response(JSON.stringify({ id: "chatcmpl-contract", object: "chat.completion", created: 0, model: "gpt-5.6-terra", choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify({ selected_move_id: "contextual-response", grounding_segment_ids: [context.latest_prospect_turn.id], spoken_response: response }) }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "content-type": "application/json" } });
+    }));
+
+    try {
+      for (const [id, text] of transcripts) {
+        const turn = prospect(id, text, 1_500);
+        const result = await analyzeLotLiftTurn({
+          state,
+          turn,
+          conversation: [owner, crm, repTurn, afterHours, turn],
+          resolvedProfile: profile,
+          settings: { llmProviders: { realtime: "openai" }, models: { openai: { realtime: "gpt-5.6-terra" } }, reasoningEffort: { realtime: "none" }, openaiApiKey: "test-key" } as Settings,
+        });
+        expect(result).toMatchObject({ source: "model", move_id: "contextual-response" });
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(requests).toHaveLength(4);
+    for (const [index, [id, text]] of transcripts.entries()) {
+      const request = requests[index]!;
+      expect(request).toMatchObject({ model: "gpt-5.6-terra", reasoning_effort: "none", response_format: { type: "json_schema", json_schema: { strict: true } } });
+      const messages = request.messages as Array<{ role: string; content: string }>;
+      const system = messages.find((message) => message.role === "system")!.content;
+      const prompt = messages.find((message) => message.role === "user")!.content;
+      const context = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only."))) as Record<string, any>;
+
+      expect(context.latest_prospect_turn).toMatchObject({ id, text });
+      expect(context.recent_verbatim_dialogue).toEqual(expect.arrayContaining([expect.objectContaining({ id: repTurn.id, text: repTurn.text }), expect.objectContaining({ id: afterHours.id, text: afterHours.text })]));
+      expect(context.durable_call_memory).toEqual(expect.arrayContaining([expect.objectContaining({ field: "workflow_owner", status: "verified", evidence_segment_id: owner.id }), expect.objectContaining({ field: "current_solution", value: "VinSolutions", status: "verified", evidence_segment_id: crm.id })]));
+      expect(context.approved_product_facts).toBeInstanceOf(Array);
+      expect(context.active_profile.claimConstraints).toEqual(expect.any(Array));
+      expect(context.next_unresolved_workflow_detail).toBeTruthy();
+      expect(context.turn_strategies["contextual-response"].max_questions).toBe(1);
+      expect(context.eligible_sales_moves).toEqual(expect.arrayContaining([expect.objectContaining({ id: "contextual-response", allowed_claim_classes: expect.any(Array) })]));
+      expect(system).toContain("Never invent product capabilities");
+      expect(prompt).not.toContain("How is coverage handled when an online inquiry arrives after hours?");
+    }
+  });
+
   it("accepts a grounded composed response for contextual response", async () => {
     const owner = prospect("generic-owner", "I handle paid inquiries.");
-    const turn = prospect("generic-turn", "We get a mix from the usual sites.", 1_000);
+    const turn = prospect("generic-turn", "Can this integrate with our CRM?", 1_000);
     const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
     const result = await analyzeLotLiftTurn({
       state,
       turn,
       conversation: [owner, turn],
       resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE),
-      model: async () => output("contextual-response", "That helps. What would be most useful to clarify?", [turn.id]),
+      model: async () => output("contextual-response", "I don’t want to assume integration details. What would be most useful to clarify?", [turn.id]),
     });
 
-    expect(result).toMatchObject({ source: "model", move_id: "contextual-response", spoken_response: "That helps. What would be most useful to clarify?" });
+    expect(result).toMatchObject({ source: "model", move_id: "contextual-response", spoken_response: "I don’t want to assume integration details. What would be most useful to clarify?" });
   });
 
   it.each([
     ["wrong move", output("lead-source", "That helps. What happens when an online inquiry arrives after hours?", ["generic-turn"])],
-    ["unsupported claim", output("contextual-response", "That helps. LotLift will improve results.", ["generic-turn"])],
-    ["missing citation", output("contextual-response", "That helps. What would be most useful to clarify?", [])],
-    ["stale script", output("contextual-response", "Understood. Could you email a proposal?", ["generic-turn"])],
+    ["unsupported claim", output("contextual-response", "LotLift integration will improve results. What should we clarify?", ["generic-turn"])],
+    ["missing citation", output("contextual-response", "I don’t want to assume integration details. What would be most useful to clarify?", [])],
+    ["stale script", output("contextual-response", "I don’t want to assume integration details. Could you email a proposal?", ["generic-turn"])],
   ])("uses the local contextual fallback for %s without another model attempt", async (_name, modelOutput) => {
     const owner = prospect("generic-owner", "I handle paid inquiries.");
-    const turn = prospect("generic-turn", "We get a mix from the usual sites.", 1_000);
+    const turn = prospect("generic-turn", "Can this integrate with our CRM?", 1_000);
     const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
     let requests = 0;
     const result = await analyzeLotLiftTurn({
@@ -86,7 +156,7 @@ describe("LotLift bounded local SalesPilot", () => {
       model: async () => { requests += 1; return modelOutput; },
     });
 
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "contextual-response", selected_move: { response: "I want to understand that before assuming anything. What would be most useful to clarify?" } });
+    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "contextual-response", selected_move: { response: "I don’t want to assume integration details. What would be most useful to clarify?" } });
     expect(requests).toBe(1);
   });
 
