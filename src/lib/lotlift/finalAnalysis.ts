@@ -18,7 +18,7 @@ export const LOTLIFT_FINAL_ANALYSIS_SCHEMA_VERSION = 1;
 
 const scalarFields = [
   "dealership", "contact_name", "role", "phone", "email", "current_solution", "lead_arrival_point",
-  "workflow_owner", "after_hours_process", "visibility_process", "authority", "urgency", "renewal_date",
+  "workflow_owner", "after_hours_process", "response_speed", "appointment_capability", "follow_up_process", "visibility_process", "authority", "urgency", "renewal_date",
   "close_opportunity", "fit_status", "disqualification_reason", "next_action", "next_action_at",
 ] as const satisfies readonly LotLiftScalarField[];
 const listFields = [
@@ -67,6 +67,7 @@ export const lotLiftFinalAnalysisModelSchema = z.object({
   dealership: modelFactSchema.optional(), contact_name: modelFactSchema.optional(), role: modelFactSchema.optional(),
   phone: modelFactSchema.optional(), email: modelFactSchema.optional(), current_solution: modelFactSchema.optional(),
   lead_arrival_point: modelFactSchema.optional(), workflow_owner: modelFactSchema.optional(), after_hours_process: modelFactSchema.optional(),
+  response_speed: modelFactSchema.optional(), appointment_capability: modelFactSchema.optional(), follow_up_process: modelFactSchema.optional(),
   visibility_process: modelFactSchema.optional(), authority: modelFactSchema.optional(), urgency: modelFactSchema.optional(),
   renewal_date: modelFactSchema.optional(), close_opportunity: modelFactSchema.optional(), fit_status: modelFactSchema.optional(),
   disqualification_reason: modelFactSchema.optional(), next_action: modelFactSchema.optional(), next_action_at: modelFactSchema.optional(),
@@ -155,7 +156,8 @@ function baseAnalysis(state: LotLiftCallState, createdAt: string): LotLiftFinalC
     summary: unknownLotLiftField(), call_outcome: unknownLotLiftField(), recommended_follow_up: unknownLotLiftField(), crm_note: unknownLotLiftField(),
     dealership: state.dealership, contact_name: state.contact_name, role: state.role, phone: state.phone, email: state.email,
     lead_sources: state.lead_sources, current_solution: state.current_solution, lead_arrival_point: state.lead_arrival_point,
-    workflow_owner: state.workflow_owner, after_hours_process: state.after_hours_process, visibility_process: state.visibility_process,
+    workflow_owner: state.workflow_owner, after_hours_process: state.after_hours_process, response_speed: state.response_speed,
+    appointment_capability: state.appointment_capability, follow_up_process: state.follow_up_process, visibility_process: state.visibility_process,
     pain_points: state.pain_points, quantified_pain: state.quantified_pain, authority: state.authority, stakeholders: state.stakeholders,
     urgency: state.urgency, renewal_date: state.renewal_date, recurring_objections: state.recurring_objections, prior_answers: state.prior_answers,
     buying_signals: state.buying_signals, commitments: state.commitments, open_questions: state.open_questions,

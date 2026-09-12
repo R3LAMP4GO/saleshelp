@@ -91,6 +91,7 @@ it("captures content hashes in immutable meeting snapshots", () => {
     productFacts: { version: "1", status: "approved" }, evaluation: { version: "1", status: "approved" },
     vocabulary: [], qualificationFields: [], prohibitedClaims: [],
     responsePolicy: { allowCitedProductFacts: false, allowDeterministicFallback: true }, productFactEntries: [],
+    conversationPlaybook: "Use verified workflow evidence only.",
     behavior: { version: 1, objective: "Learn the workflow.", moves: [{ id: "O1", title: "Open", goal: "Open.", script: "Hello there.", responseMode: "verbatim", maxWords: 3, variables: [] }], discovery: [], objections: [], closeRequirements: ["Close."], claimConstraints: ["No claims."], runtimePreferences: {} },
     knowledgeAttachments: attachments,
   };

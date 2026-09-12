@@ -80,6 +80,8 @@ export interface ResolvedSalesProfile {
   baseVersion: string;
   snapshotVersion: string;
   behavior: SalesProfileBehavior;
+  /** Immutable, compact profile-authored conversation strategy for this call. */
+  conversationPlaybook: string;
   /** Approved, immutable product facts permitted for this call snapshot. */
   approvedProductFacts: readonly Pick<ProductFact, "id" | "statement">[];
   knowledgeAttachments: readonly ProfileKnowledgeAttachment[];
@@ -100,6 +102,8 @@ export interface SalesProfile {
   responsePolicy: SalesResponsePolicy;
   productFactEntries: readonly ProductFact[];
   behavior: SalesProfileBehavior;
+  /** Compact, profile-authored strategy. Raw source methodology is never placed here. */
+  conversationPlaybook: string;
   knowledgeAttachments?: readonly ProfileKnowledgeAttachment[];
   crmConnectionId?: string;
   followUpPolicyId?: string;
@@ -111,6 +115,7 @@ const profiles = new Map<string, SalesProfile>();
 export function registerSalesProfile(profile: SalesProfile): void {
   if (profiles.has(profile.id)) throw new Error(`Duplicate sales profile: ${profile.id}`);
   validateSalesProfileBehavior(profile.behavior);
+  validateText(profile.conversationPlaybook, "Conversation playbook", 12_000);
   validateProfileKnowledgeAttachments(profile.knowledgeAttachments);
   profiles.set(profile.id, profile);
 }
@@ -187,8 +192,9 @@ export function resolveSalesProfile(profile: SalesProfile, behavior = profile.be
   const validated = validateSalesProfileBehavior(behavior);
   const attachments = validateProfileKnowledgeAttachments(knowledgeAttachments);
   const facts = approvedProductFacts(profile);
-  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify({ behavior: validated, approvedProductFacts: facts, knowledgeAttachments: attachments }))}`;
-  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated, approvedProductFacts: facts, knowledgeAttachments: attachments });
+  const conversationPlaybook = validateText(profile.conversationPlaybook, "Conversation playbook", 12_000);
+  const snapshotVersion = `${profile.profile.version}-${profileHash(JSON.stringify({ behavior: validated, conversationPlaybook, approvedProductFacts: facts, knowledgeAttachments: attachments }))}`;
+  return Object.freeze({ profileId: profile.id, baseVersion: profile.profile.version, snapshotVersion, behavior: validated, conversationPlaybook, approvedProductFacts: facts, knowledgeAttachments: attachments });
 }
 
 export function isApproved(version: VersionedApproval | undefined): boolean {

@@ -11,14 +11,14 @@ const prospect = (id: string, text: string) => ({ id, text, source: "them" as co
 const select = (state: ReturnType<typeof newLotLiftCallState>, text: string) => selectLotLiftNextMove({ state, turn: prospect(`p-${state.revision}`, text), conversation: [prospect(`p-${state.revision}`, text)], approvedRepIdentity: "Avery Test", resolvedProfile: profile });
 
 it("preserves policy routes across the methodology behavioral cases", () => {
-  expect(select(newLotLiftCallState("not-interested"), "No thanks, I'm not interested.")).toMatchObject({ id: "first-refusal" });
-  expect(select(newLotLiftCallState("send-info"), "Just send me some information.")).toMatchObject({ id: "information-topic", rule_ids: ["objection:send-information"], source: "approved-move" });
+  expect(select(newLotLiftCallState("not-interested"), "No thanks, I'm not interested.")).toMatchObject({ id: "terra-composition", source: "approved-move" });
+  expect(select(newLotLiftCallState("send-info"), "Just send me some information.")).toMatchObject({ id: "terra-composition", source: "approved-move" });
 
   let priceState = newLotLiftCallState("price-after-pain");
   priceState = select(priceState, "Our late internet leads sit until morning.").state_events.reduce(reduceLotLiftCallState, priceState);
-  expect(select(priceState, "This sounds too expensive.")).toMatchObject({ id: "price-isolation", tactic_id: "concern-isolation", rule_ids: ["objection:no-budget"] });
+  expect(select(priceState, "This sounds too expensive.")).toMatchObject({ id: "terra-composition", source: "approved-move" });
 
-  expect(select(newLotLiftCallState("novel"), "I worry the staff will think this is spying.")).toMatchObject({ id: "contextual-response", source: "approved-move" });
+  expect(select(newLotLiftCallState("novel"), "I worry the staff will think this is spying.")).toMatchObject({ id: "terra-composition", source: "approved-move" });
 
   let refusalState = newLotLiftCallState("second-no");
   refusalState = select(refusalState, "No thanks, not interested.").state_events.reduce(reduceLotLiftCallState, refusalState);
@@ -33,5 +33,5 @@ it("falls back to profile-only behavior when source indexes are unavailable", ()
   const candidates = [select(state, turn.text)];
   const methodology = buildLotLiftMethodologyContext({ state, turn, candidates, resolvedProfile: profile, knowledge: { references: [], indexes: [] } });
   expect(methodology).toMatchObject({ frameworks: [], support: [], sourceRefs: [], sourceCount: 0, chunkCount: 0 });
-  expect(methodology.profileGuidance).toContain("Earn a **15-minute Lead Response Workflow Check**");
+  expect(methodology.profileGuidance).toContain("15-minute Lead Response Workflow Check");
 });

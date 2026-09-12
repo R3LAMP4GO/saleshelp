@@ -26,6 +26,6 @@ it("isolates a validated O3 override and snapshots it into a new meeting", () =>
 });
 
 it("rejects unknown moves and unsafe script variables", () => {
-  expect(() => validateSalesProfileOverride({ profileId: LOTLIFT_COLD_OUTBOUND_PROFILE.id, baseVersion: "1", moves: { NOPE: { script: "Nope" } }, updatedAt: "2026-01-01T00:00:00.000Z" }, LOTLIFT_COLD_OUTBOUND_PROFILE)).toThrow("unknown");
-  expect(() => validateSalesProfileOverride({ profileId: LOTLIFT_COLD_OUTBOUND_PROFILE.id, baseVersion: "1", moves: { O3: { script: "Hi [unknown]." } }, updatedAt: "2026-01-01T00:00:00.000Z" }, LOTLIFT_COLD_OUTBOUND_PROFILE)).toThrow("undeclared");
+  expect(() => validateSalesProfileOverride({ profileId: LOTLIFT_COLD_OUTBOUND_PROFILE.id, baseVersion: LOTLIFT_COLD_OUTBOUND_PROFILE.profile.version, moves: { NOPE: { script: "Nope" } }, updatedAt: "2026-01-01T00:00:00.000Z" }, LOTLIFT_COLD_OUTBOUND_PROFILE)).toThrow("unknown");
+  expect(() => validateSalesProfileOverride({ profileId: LOTLIFT_COLD_OUTBOUND_PROFILE.id, baseVersion: LOTLIFT_COLD_OUTBOUND_PROFILE.profile.version, moves: { O3: { script: "Hi [unknown]." } }, updatedAt: "2026-01-01T00:00:00.000Z" }, LOTLIFT_COLD_OUTBOUND_PROFILE)).toThrow("undeclared");
 });

@@ -196,7 +196,7 @@ export type CallStateEvent =
 
 const scalarFields: readonly LotLiftScalarField[] = [
   "dealership", "contact_name", "role", "phone", "email", "current_solution", "lead_arrival_point",
-  "workflow_owner", "after_hours_process", "visibility_process", "authority", "urgency", "renewal_date",
+  "workflow_owner", "after_hours_process", "response_speed", "appointment_capability", "follow_up_process", "visibility_process", "authority", "urgency", "renewal_date",
   "close_opportunity", "fit_status", "disqualification_reason", "next_action", "next_action_at", "selected_objection_route",
 ];
 
@@ -303,7 +303,8 @@ export function reduceLotLiftCallState(state: LotLiftCallState, event: CallState
     }
     case "append": {
       const next = { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
-      return (event.field === "pain_points" || event.field === "quantified_pain") && deriveLotLiftCallPhase(state) !== "GATEKEEPER"
+      const verifiedGapEvidence = event.fact.status === "verified" && Boolean(event.fact.value && event.fact.evidence);
+      return (event.field === "pain_points" || event.field === "quantified_pain") && verifiedGapEvidence && deriveLotLiftCallPhase(state) !== "GATEKEEPER"
         ? { ...next, phase: advanceLotLiftCallPhase(state, "GAP_FOUND") }
         : next;
     }

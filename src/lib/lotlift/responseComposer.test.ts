@@ -70,7 +70,7 @@ it.each([
   const directCandidates = lotLiftMoveCandidates({ state: ownerState, turn: direct, conversation: [owner, direct], resolvedProfile });
   const directContext = buildLotLiftResponseCompositionContext({ state: ownerState, turn: direct, conversation: [owner, direct], candidates: directCandidates, responsePolicy: "composable", resolvedProfile });
 
-  const composition = validateLotLiftResponseComposition({ selected_move_id: "contextual-response", grounding_segment_ids: [owner.id, direct.id], spoken_response }, directContext);
+  const composition = validateLotLiftResponseComposition({ selected_move_id: directCandidates[0]!.id, grounding_segment_ids: [owner.id, direct.id], spoken_response }, directContext);
   expect(composition).toMatchObject({ result: null, rejection_code: "spoken-response", rejection_subreason: "prohibited-commercial-claim" });
 });
 
@@ -80,6 +80,6 @@ it("rejects a contextual response that omits the latest prospect citation", () =
   const directCandidates = lotLiftMoveCandidates({ state, turn: direct, conversation: [earlier, direct], resolvedProfile });
   const directContext = buildLotLiftResponseCompositionContext({ state, turn: direct, conversation: [earlier, direct], candidates: directCandidates, responsePolicy: "composable", resolvedProfile });
 
-  const composition = validateLotLiftResponseComposition({ selected_move_id: "contextual-response", grounding_segment_ids: [earlier.id], spoken_response: "I don’t want to assume integration details. What would be useful to clarify?" }, directContext);
+  const composition = validateLotLiftResponseComposition({ selected_move_id: directCandidates[0]!.id, grounding_segment_ids: [earlier.id], spoken_response: "I don’t want to assume integration details. What would be useful to clarify?" }, directContext);
   expect(composition).toMatchObject({ result: null, rejection_code: "grounding" });
 });

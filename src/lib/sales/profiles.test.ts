@@ -8,6 +8,7 @@ const profile: SalesProfile = {
   productFacts: { version: "3", status: "approved" }, evaluation: { version: "4", status: "approved" },
   vocabulary: [], qualificationFields: [], prohibitedClaims: [],
   responsePolicy: { allowCitedProductFacts: false, allowDeterministicFallback: true }, productFactEntries: [],
+  conversationPlaybook: "Keep the conversation grounded in verified workflow facts.",
   behavior: { version: 1, objective: "Learn whether the workflow is relevant.", moves: [{ id: "O1", title: "Opening", goal: "Open the call.", script: "Hello.", responseMode: "verbatim", maxWords: 3, variables: [] }], discovery: [], objections: [], closeRequirements: ["Close respectfully."], claimConstraints: ["Do not make unsupported claims."], runtimePreferences: { modelBehavior: "bounded" } },
 };
 
@@ -33,6 +34,8 @@ it("snapshots only approved cited product facts", () => {
   const resolved = resolveSalesProfile(withFacts);
   expect(resolved.approvedProductFacts).toEqual([{ id: "approved", statement: "LotLift sends a summary." }]);
   expect(resolved.snapshotVersion).not.toBe(resolveSalesProfile({ ...withFacts, productFactEntries: [] }).snapshotVersion);
+  expect(resolved.snapshotVersion).not.toBe(resolveSalesProfile({ ...withFacts, conversationPlaybook: "Different compact strategy." }).snapshotVersion);
+  expect(Object.isFrozen(resolved)).toBe(true);
 });
 
 it("defaults approval checks to deny", () => {

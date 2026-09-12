@@ -41,7 +41,7 @@ describe("pending profile answers", () => {
     const state = events.reduce(reduceLotLiftCallState, pending());
     expect(state.workflow_owner).toMatchObject({ value: "Oh, that would be me.", status: "verified" });
     expect(state.pending_answer).toBeNull();
-    expect(lotLiftMoveCandidates({ state, turn: prospect("owner", "Oh, that would be me."), conversation: [] })[0]?.id).toBe("right-person-process");
+    expect(lotLiftMoveCandidates({ state, turn: prospect("owner", "Oh, that would be me."), conversation: [] })[0]?.id).toBe("terra-composition");
   });
 
   it("captures free-text after-hours evidence only for an executed question", () => {

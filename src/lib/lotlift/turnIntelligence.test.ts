@@ -1,395 +1,87 @@
 import { describe, expect, it, vi } from "vitest";
 import { newLotLiftCallState, reduceLotLiftCallState, type CallStateEvent } from "./callState";
-import { lotLiftMoveCandidates } from "./nextMove";
-import { buildLotLiftResponseCompositionContext, validateLotLiftObservationExtraction } from "./responseComposer";
-import { analyzeLotLiftTurn, type LotLiftTurnModelOutput } from "./turnIntelligence";
+import { analyzeLotLiftTurn, type LotLiftTurnModel, type LotLiftTurnModelOutput } from "./turnIntelligence";
 import { LOTLIFT_COLD_OUTBOUND_PROFILE } from "../../../sales-profiles/lotlift/profile";
 import { resolveSalesProfile } from "../sales/profiles";
-import type { Settings, TranscriptSegment } from "../types";
+import type { TranscriptSegment } from "../types";
 
-const prospect = (id: string, text: string, at = 0): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: at, endMs: at + 100 });
-const rep = (id: string, text: string, at = 0): TranscriptSegment => ({ id, text, source: "me", speaker: 1, isFinal: true, startMs: at, endMs: at + 100 });
-const stateWith = (events: CallStateEvent[]) => events.reduce(reduceLotLiftCallState, newLotLiftCallState("test-call"));
-const fact = (field: Extract<CallStateEvent, { type: "append" }>["field"], value: string, segment_id: string): CallStateEvent => ({ type: "append", field, fact: { value, status: "verified", evidence: { segment_id, text: value } } });
-const scalar = (field: Extract<CallStateEvent, { type: "capture" }>["field"], value: string, segment_id: string): CallStateEvent => ({ type: "capture", field, fact: { value, status: "verified", evidence: { segment_id, text: value } } });
-const output = (selected_move_id: string, spoken_response: string, grounding_segment_ids: string[]): LotLiftTurnModelOutput => ({ selected_move_id, spoken_response, grounding_segment_ids });
+const prospect = (id: string, text: string): TranscriptSegment => ({ id, text, source: "them", speaker: 0, isFinal: true, startMs: 0, endMs: 100 });
+const rep = (id: string, text: string): TranscriptSegment => ({ id, text, source: "me", speaker: 1, isFinal: true, startMs: 0, endMs: 100 });
+const output = (spoken_response: string, id = "terra-composition"): LotLiftTurnModelOutput => ({ selected_move_id: id, spoken_response, grounding_segment_ids: ["turn"] });
+const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
 
-async function run(state: ReturnType<typeof newLotLiftCallState>, conversation: TranscriptSegment[], model: LotLiftTurnModelOutput | Error, settings?: Settings) {
+async function run(model: () => Promise<LotLiftTurnModelOutput>, state = newLotLiftCallState("test"), conversation: TranscriptSegment[] = [prospect("turn", "We use a CRM, but leads wait until morning.")], signal?: AbortSignal) {
   const turn = conversation[conversation.length - 1]!;
-  return analyzeLotLiftTurn({ state, turn, conversation, settings, model: async () => { if (model instanceof Error) throw model; return model; } });
+  return analyzeLotLiftTurn({ state, turn, conversation, model: async () => model(), resolvedProfile: profile, signal });
 }
 
-const repSettings = { userName: "Isaiah", llmProviders: { realtime: "ollama" }, models: { ollama: { realtime: "qwen3:4b" } }, lotLiftLocalModelDeadlineMs: 2_000 } as Settings;
-
-describe("LotLift bounded local SalesPilot", () => {
-  it("uses the resolved O2 script without requesting a model for curly punctuation", async () => {
-    let requests = 0;
-    const turn = prospect("resolved-o2", "Who’s this?");
-    const resolvedProfile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE, { ...LOTLIFT_COLD_OUTBOUND_PROFILE.behavior, moves: LOTLIFT_COLD_OUTBOUND_PROFILE.behavior.moves.map((move) => move.id === "O2" ? { ...move, script: "This is [configured rep name] with LotLift." } : move) });
-    const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("resolved-o2"), turn, conversation: [turn], settings: repSettings, resolvedProfile, model: async () => { requests += 1; throw new Error("model must not run"); } });
-    expect(result).toMatchObject({ source: "hard-rule", move_id: "O2", selected_move: { response: "This is Isaiah with LotLift.", response_mode: "template" } });
-    expect(requests).toBe(0);
-  });
-
-  it("uses the resolved O3 script without requesting a model", async () => {
-    let requests = 0;
-    const turn = prospect("resolved-o3", "How can I help?");
-    const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("resolved-o3"), turn, conversation: [turn], settings: repSettings, resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async () => { requests += 1; throw new Error("model must not run"); } });
-    expect(result.source).toBe("hard-rule");
-    expect(result.selected_move?.id).toBe("O3");
-    expect(result.selected_move?.response_mode).toBe("verbatim");
-    expect(requests).toBe(0);
-  });
-
-  it("uses the approved v7 product explanation without requesting a model", async () => {
-    let requests = 0;
-    const owner = prospect("v7-owner", "That's me.");
-    const turn = prospect("v7-product", "What exactly does LotLift do?");
-    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
-    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], settings: repSettings, resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async () => { requests += 1; throw new Error("model must not run"); } });
-
-    expect(result).toMatchObject({ source: "hard-rule", move_id: "v7-product-answer", selected_move: { response: "Basically, we make sure the lead gets a response, somebody owns it, and the customer can move toward an appointment even when your team is busy or the store is closed.", response_mode: "verbatim" } });
-    expect(requests).toBe(0);
-  });
-
-  it("uses contextual clarification without live book retrieval for a novel objection", async () => {
-    const owner = prospect("owner", "I own the internet-lead workflow.");
-    const turn = prospect("novel-methodology", "I worry the staff will think this is spying.");
-    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
+describe("Terra-first turn intelligence", () => {
+  it("passes reduced state, actual dialogue, canonical policy, product facts, and one objective", async () => {
     const requests: Array<{ system: string; prompt: string }> = [];
-    const result = await analyzeLotLiftTurn({ state, turn, conversation: [owner, turn], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE), model: async (input) => { requests.push(input); return output("contextual-response", "That makes sense about spying. What concerns your staff most?", [turn.id]); } });
-    expect(result).toMatchObject({ source: "model", move_id: "contextual-response" });
-    expect(requests[0]?.system).not.toContain("# Sales Methodology");
-    expect(requests[0]?.prompt).not.toContain("cold-calling-sucks");
-    expect(requests[0]?.prompt).not.toContain("source_support");
+    const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("contract"), turn: prospect("turn", "We use a CRM, but leads wait until morning."), conversation: [rep("rep", "How are online inquiries handled today?"), prospect("turn", "We use a CRM, but leads wait until morning.")], model: async (request) => { requests.push(request); return output("That wait sounds frustrating. How are those inquiries covered after hours?"); }, resolvedProfile: profile });
+    expect(result).toMatchObject({ source: "model", move_id: "terra-composition" });
+    const prompt = requests[0]!.prompt;
+    expect(prompt).toContain("recent_verbatim_dialogue");
+    expect(prompt).toContain("conversation_policy");
+    expect(prompt).toContain("approved_product_facts");
+    expect(prompt).toContain("next_unresolved_workflow_detail");
+    expect(prompt).toContain("terra-composition");
+    expect(prompt).toContain("Gatekeeper");
   });
 
-  it("sends complete contextual composition contracts in production Terra requests", async () => {
-    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
-    const owner = prospect("contract-owner", "I manage our paid online inquiries.", 0);
-    const crm = prospect("contract-crm", "We use VinSolutions for those leads.", 500);
-    const repTurn = rep("contract-rep", "Thanks for explaining that.", 750);
-    const afterHours = prospect("contract-after-hours", "After hours, some inquiries wait until morning.", 1_000);
-    const state = stateWith([
-      scalar("workflow_owner", owner.text, owner.id),
-      scalar("current_solution", "VinSolutions", crm.id),
-      scalar("after_hours_process", afterHours.text, afterHours.id),
-    ]);
-    const transcripts = [
-      ["contract-understand", "I don’t understand what you mean."],
-      ["contract-more", "Tell me more."],
-      ["contract-trust", "My staff may think this is spying."],
-      ["contract-tenure", "We have handled it ourselves for 15 years."],
-    ] as const;
-    const requests: Array<Record<string, unknown>> = [];
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
-      const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      requests.push(request);
-      const messages = request.messages as Array<{ role: string; content: string }>;
-      const prompt = messages.find((message) => message.role === "user")!.content;
-      const context = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only."))) as { latest_prospect_turn: { id: string; text: string } };
-      const response = /spying/i.test(context.latest_prospect_turn.text)
-        ? "I understand why spying could concern them. What would be most useful to clarify?"
-        : /15 years/i.test(context.latest_prospect_turn.text)
-          ? "I won’t assume a process that worked for years needs changing. What would be useful to clarify?"
-          : "I want to understand that before assuming anything. What would be most useful to clarify?";
-      return new Response(JSON.stringify({ id: "chatcmpl-contract", object: "chat.completion", created: 0, model: "gpt-5.6-terra", choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify({ selected_move_id: "contextual-response", grounding_segment_ids: [context.latest_prospect_turn.id], spoken_response: response }) }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "content-type": "application/json" } });
-    }));
-
-    try {
-      for (const [id, text] of transcripts) {
-        const turn = prospect(id, text, 1_500);
-        const result = await analyzeLotLiftTurn({
-          state,
-          turn,
-          conversation: [owner, crm, repTurn, afterHours, turn],
-          resolvedProfile: profile,
-          settings: { llmProviders: { realtime: "openai" }, models: { openai: { realtime: "gpt-5.6-terra" } }, reasoningEffort: { realtime: "none" }, openaiApiKey: "test-key" } as Settings,
-        });
-        expect(result).toMatchObject({ source: "model", move_id: "contextual-response" });
-      }
-    } finally {
-      vi.unstubAllGlobals();
-    }
-
-    expect(requests).toHaveLength(4);
-    for (const [index, [id, text]] of transcripts.entries()) {
-      const request = requests[index]!;
-      expect(request).toMatchObject({ model: "gpt-5.6-terra", reasoning_effort: "none", response_format: { type: "json_schema", json_schema: { strict: true } } });
-      const messages = request.messages as Array<{ role: string; content: string }>;
-      const system = messages.find((message) => message.role === "system")!.content;
-      const prompt = messages.find((message) => message.role === "user")!.content;
-      const context = JSON.parse(prompt.slice("SALES_DECISION_CONTEXT=".length, prompt.indexOf("\nReturn JSON only."))) as Record<string, any>;
-
-      expect(context.latest_prospect_turn).toMatchObject({ id, text });
-      expect(context.recent_verbatim_dialogue).toEqual(expect.arrayContaining([expect.objectContaining({ id: repTurn.id, text: repTurn.text }), expect.objectContaining({ id: afterHours.id, text: afterHours.text })]));
-      expect(context.durable_call_memory).toEqual(expect.arrayContaining([expect.objectContaining({ field: "workflow_owner", status: "verified", evidence_segment_id: owner.id }), expect.objectContaining({ field: "current_solution", value: "VinSolutions", status: "verified", evidence_segment_id: crm.id })]));
-      expect(context.approved_product_facts).toBeInstanceOf(Array);
-      expect(context.active_profile.claimConstraints).toEqual(expect.any(Array));
-      expect(context.next_unresolved_workflow_detail).toBeTruthy();
-      expect(context.turn_strategies["contextual-response"].max_questions).toBe(1);
-      expect(context.eligible_sales_moves).toEqual(expect.arrayContaining([expect.objectContaining({ id: "contextual-response", allowed_claim_classes: expect.any(Array) })]));
-      expect(system).toContain("Never invent product capabilities");
-      expect(prompt).not.toContain("How is coverage handled when an online inquiry arrives after hours?");
+  it("never lets fallback display mutate a neutral call state", async () => {
+    const initial = newLotLiftCallState("fallback-state");
+    const neutral = prospect("neutral", "Can you tell me more?");
+    const fallbackCases = [
+      analyzeLotLiftTurn({ state: initial, turn: neutral, conversation: [neutral], model: async () => output("LotLift guarantees ROI. What is your budget?", "terra-composition"), resolvedProfile: profile }),
+      analyzeLotLiftTurn({ state: initial, turn: neutral, conversation: [neutral], model: async () => { throw new Error("offline"); }, resolvedProfile: profile }),
+      analyzeLotLiftTurn({ state: initial, turn: neutral, conversation: [neutral], model: async () => new Promise<LotLiftTurnModelOutput>(() => {}), timeoutMs: 1, resolvedProfile: profile }),
+    ];
+    const results = await Promise.all(fallbackCases);
+    expect(results.map((result) => result.fallback_reason)).toEqual(["invalid-output", "model-error", "timeout"]);
+    for (const result of results) {
+      expect(result.state_events).toEqual([]);
+      expect(result.state_events.reduce(reduceLotLiftCallState, initial)).toEqual(initial);
     }
   });
 
-  it("accepts a grounded composed response for contextual response", async () => {
-    const owner = prospect("generic-owner", "I handle paid inquiries.");
-    const turn = prospect("generic-turn", "Can this integrate with our CRM?", 1_000);
-    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
-    const result = await analyzeLotLiftTurn({
-      state,
-      turn,
-      conversation: [owner, turn],
-      resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE),
-      model: async () => output("contextual-response", "I don’t want to assume integration details. What would be most useful to clarify?", [turn.id]),
-    });
-
-    expect(result).toMatchObject({ source: "model", move_id: "contextual-response", spoken_response: "I don’t want to assume integration details. What would be most useful to clarify?" });
+  it("uses exact hard rules without calling Terra", async () => {
+    const model = vi.fn(async () => output("Unused response. How are leads handled?"));
+    const result = await analyzeLotLiftTurn({ state: newLotLiftCallState("identity"), turn: prospect("turn", "Who's this?"), conversation: [prospect("turn", "Who's this?")], model, resolvedProfile: profile });
+    expect(result).toMatchObject({ source: "hard-rule", move_id: "O2" });
+    expect(model).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["wrong move", output("lead-source", "That helps. What happens when an online inquiry arrives after hours?", ["generic-turn"])],
-    ["unsupported claim", output("contextual-response", "LotLift integration will improve results. What should we clarify?", ["generic-turn"])],
-    ["missing citation", output("contextual-response", "I don’t want to assume integration details. What would be most useful to clarify?", [])],
-    ["stale script", output("contextual-response", "I don’t want to assume integration details. Could you email a proposal?", ["generic-turn"])],
-  ])("uses the local contextual fallback for %s without another model attempt", async (_name, modelOutput) => {
-    const owner = prospect("generic-owner", "I handle paid inquiries.");
-    const turn = prospect("generic-turn", "Can this integrate with our CRM?", 1_000);
-    const state = stateWith([scalar("workflow_owner", owner.text, owner.id)]);
-    let requests = 0;
-    const result = await analyzeLotLiftTurn({
-      state,
-      turn,
-      conversation: [owner, turn],
-      resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE),
-      model: async () => { requests += 1; return modelOutput; },
-    });
-
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "contextual-response", selected_move: { response: "I don’t want to assume integration details. What would be most useful to clarify?" } });
-    expect(requests).toBe(1);
+  it("falls back locally for rejected model output without model state events", async () => {
+    const result = await run(async () => output("LotLift guarantees ROI. What is your budget?"));
+    expect(result).toMatchObject({ source: "fallback", move_id: "terra-composition", fallback_reason: "invalid-output" });
+    expect(result.state_events).toHaveLength(1);
   });
 
-  it("advances a self-confirmed owner into deterministic right-person discovery", async () => {
-    const owner = prospect("owner-answer", "That would be me.");
-    let modelPrompt = "";
-    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
-    const state = stateWith([{ type: "pending-answer", pending: { rep_segment_id: "o3", profile_id: profile.profileId, profile_snapshot_version: profile.snapshotVersion, move_id: "O3", kind: "confirmation", target_field: "workflow_owner", created_revision: 0 } }]);
-    const ownerResult = await analyzeLotLiftTurn({ state, turn: owner, conversation: [rep("o3", "Is that you?"), owner], resolvedProfile: profile, model: async ({ prompt }) => {
-      modelPrompt = prompt;
-      return output("lead-source", "Which online sources generate most buyer inquiries for you today?", [owner.id]);
-    } });
-    expect(ownerResult).toMatchObject({ source: "hard-rule", move_id: "right-person-process", selected_move: { response: "How are you guys handling your online leads right now, especially after hours?" } });
-    expect(modelPrompt).toBe("");
-    const nextState = ownerResult.state_events.reduce(reduceLotLiftCallState, state);
-    const why = prospect("why-after-owner", "Why are you calling?");
-    const whyResult = await analyzeLotLiftTurn({ state: nextState, turn: why, conversation: [rep("o3", "Is that you?"), owner, why], resolvedProfile: profile, model: async () => output("contextual-response", "I'm calling to understand your online inquiry workflow. What would be most useful to clarify?", [why.id]) });
-    expect(whyResult).toMatchObject({ source: "model", move_id: "contextual-response" });
-    expect(whyResult.spoken_response).not.toMatch(/is that you|who handles|who owns/i);
+  it("falls back once for a model failure", async () => {
+    const result = await run(async () => { throw new Error("offline"); });
+    expect(result).toMatchObject({ source: "fallback", move_id: "terra-composition", fallback_reason: "model-error" });
+    expect(result.state_events).toHaveLength(1);
   });
 
-  it("shows a deterministic first-refusal fallback and terminates a second substantive refusal", async () => {
-    const first = prospect("first", "Thank you, but I'm not interested.");
-    const firstCandidates = lotLiftMoveCandidates({ state: newLotLiftCallState("first"), turn: first, conversation: [first] });
-    expect(firstCandidates).toHaveLength(1);
-    const firstResult = await run(newLotLiftCallState("first"), [first], new Error("offline"));
-    expect(firstResult).toMatchObject({ source: "fallback", selected_move: { id: "first-refusal" } });
-    const secondState = stateWith(firstCandidates[0]!.state_events);
-    const second = prospect("second", "No thanks, we're not interested.");
-    const secondResult = await run(secondState, [second], new Error("offline"));
-    expect(secondResult).toMatchObject({ source: "hard-rule", move_id: "second-no-close" });
+  it("contains a synchronous injected model failure in the same fallback", async () => {
+    const turn = prospect("sync", "Can you tell me more?");
+    const model = (() => { throw new Error("sync failure"); }) as unknown as LotLiftTurnModel;
+    await expect(analyzeLotLiftTurn({ state: newLotLiftCallState("sync"), turn, conversation: [turn], model, resolvedProfile: profile })).resolves.toMatchObject({ source: "fallback", move_id: "terra-composition", fallback_reason: "model-error", state_events: [] });
   });
 
-  it("advances O2 through O3 into CRM-aware discovery using only actual returned state and rep speech", async () => {
-    let state = newLotLiftCallState("opening-spine");
-    const who = prospect("who", "Who is this?", 0);
-    const identity = await run(state, [who], new Error("offline"), repSettings);
-    expect(identity).toMatchObject({ move_id: "O2", source: "hard-rule" });
-    state = identity.state_events.reduce(reduceLotLiftCallState, state);
-    const saidIdentity = rep("said-o2", identity.selected_move!.fallback_response, 1_000);
-
-    const purposeQuestion = prospect("purpose", "What's this regarding?", 2_000);
-    const purpose = await run(state, [who, saidIdentity, purposeQuestion], new Error("offline"), repSettings);
-    expect(purpose).toMatchObject({ move_id: "O3", source: "hard-rule" });
-    expect(purpose.selected_move!.response).not.toMatch(/^Who is this|^Who owns/i);
-    state = purpose.state_events.reduce(reduceLotLiftCallState, state);
-    const saidPurpose = rep("said-o3", purpose.selected_move!.fallback_response, 3_000);
-
-    const crm = prospect("crm", "Yeah, I guess. We use VinSolutions.", 4_000);
-    const crmResult = await run(state, [who, saidIdentity, purposeQuestion, saidPurpose, crm], new Error("offline"), repSettings);
-    expect(crmResult).toMatchObject({ move_id: "identify-owner", source: "fallback" });
-    expect(crmResult.selected_move!.response).not.toMatch(/which CRM|replace/i);
-    state = crmResult.state_events.reduce(reduceLotLiftCallState, state);
-    expect(state.current_solution).toMatchObject({ value: "VinSolutions", status: "verified" });
-
-    const afterHours = prospect("after-hours", "Some stuff that comes in after hours sits until the morning.", 5_000);
-    const afterHoursResult = await run(state, [who, saidIdentity, purposeQuestion, saidPurpose, crm, afterHours], new Error("offline"), repSettings);
-    state = afterHoursResult.state_events.reduce(reduceLotLiftCallState, state);
-    expect(state.after_hours_process).toMatchObject({ value: afterHours.text, status: "verified" });
-    expect(state.pain_points).toEqual(expect.arrayContaining([expect.objectContaining({ value: afterHours.text })]));
-
-    const crmAgain = prospect("crm-again", "We already have a CRM though.", 6_000);
-    const laterResult = await run(state, [who, saidIdentity, purposeQuestion, saidPurpose, crm, afterHours, crmAgain], new Error("offline"), repSettings);
-    expect(laterResult).toMatchObject({ move_id: "existing-workflow-coverage", source: "fallback" });
-    expect(laterResult.selected_move!.response).not.toMatch(/Who is this|which CRM|replace/i);
+  it("cancels stale work without publishing a model response", async () => {
+    const controller = new AbortController();
+    const pending = run(() => new Promise((resolve) => setTimeout(() => resolve(output("That makes sense. How are leads covered after hours?")), 20)), newLotLiftCallState("cancel"), [prospect("turn", "Tell me more.")], controller.signal);
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({ source: "fallback", fallback_reason: "cancelled", state_events: [] });
   });
 
-  it("renders O3's canonical script even when the model writes a different valid purpose response", async () => {
-    const turn = prospect("purpose-verbatim", "What's this regarding?");
-    const result = await run(newLotLiftCallState("purpose-verbatim"), [turn], output("O3", "I am calling about paid inquiries after hours. How does that work at your store?", ["purpose-verbatim"]));
-    expect(result).toMatchObject({ source: "hard-rule", move_id: "O3", selected_move: { response: "“I’m calling about who handles your online leads there. Is that you?”" } });
-  });
-
-  it("keeps CRM context and after-hours evidence instead of restarting discovery", async () => {
-    const crm = prospect("crm", "We use VinSolutions.", 0);
-    const afterHours = prospect("after-hours", "Usually, but things after hours can sit until the morning.", 2_000);
-    const current = prospect("current", "We already have a CRM though.", 4_000);
-    const state = stateWith([scalar("current_solution", "VinSolutions", "crm"), scalar("after_hours_process", "things after hours can sit until the morning", "after-hours")]);
-    const result = await run(state, [crm, rep("r", "Does everything get assigned there?", 1_000), afterHours, current], output("existing-workflow-coverage", "That makes sense. When things sit until morning, what happens to those inquiries?", ["current", "after-hours"]));
-    expect(result).toMatchObject({ source: "model", move_id: "existing-workflow-coverage" });
-    expect(result.spoken_response).toContain("sit until morning");
-    expect(result.spoken_response).not.toMatch(/which CRM|replace/i);
-  });
-
-  it("lets the model select a pain-aware price move using stakeholder evidence", async () => {
-    const wife = prospect("wife", "My wife handles the finances.", 0);
-    const pain = prospect("pain", "Sometimes leads sit until morning.", 2_000);
-    const priority = prospect("priority", "She mainly cares that somebody actually follows up.", 4_000);
-    const price = prospect("price", "This still sounds expensive.", 6_000);
-    const state = stateWith([fact("decision_stakeholders", "wife", "wife"), fact("pain_points", "leads sit until morning", "pain"), fact("pain_points", "somebody actually follows up", "priority")]);
-    const candidates = lotLiftMoveCandidates({ state, turn: price, conversation: [wife, pain, priority, price] });
-    expect(candidates.map((candidate) => candidate.id)).toEqual(expect.arrayContaining(["price-isolation", "price-pain-value"]));
-    const result = await run(state, [wife, pain, priority, price], output("price-pain-value", "Got it. You mentioned your wife cares that somebody actually follows up, so is the concern the spend itself or whether fixing that gap feels worth it?", ["price", "wife", "priority"]));
-    expect(result).toMatchObject({ source: "model", move_id: "price-pain-value" });
-    expect(result.spoken_response).toContain("wife");
-    expect(result.spoken_response).not.toMatch(/\$|ROI|guarantee/i);
-  });
-
-  it("changes price candidates for pain, stakeholder, and an already-used diagnostic", () => {
-    const price = prospect("price", "This sounds expensive.");
-    const plain = lotLiftMoveCandidates({ state: newLotLiftCallState("plain"), turn: price, conversation: [price] });
-    const pain = stateWith([fact("pain_points", "leads sit until morning", "pain")]);
-    const stakeholder = stateWith([fact("decision_stakeholders", "wife", "wife"), scalar("workflow_owner", "manager", "wife"), scalar("authority", "owner", "wife")]);
-    const repeated = stateWith([{ type: "coaching-progress", move_id: "price-isolation" }]);
-    const priorPriceQuestion = rep("prior-price", "Is the concern the monthly spend itself or setup effort?", -1_000);
-    expect(lotLiftMoveCandidates({ state: pain, turn: price, conversation: [price] }).map((move) => move.id)).toContain("price-pain-value");
-    expect(lotLiftMoveCandidates({ state: stakeholder, turn: price, conversation: [price] }).map((move) => move.id)).toContain("price-stakeholder-criteria");
-    expect(plain[0]!.id).toBe("price-isolation");
-    expect(lotLiftMoveCandidates({ state: repeated, turn: price, conversation: [priorPriceQuestion, price] })[0]!.id).toBe("price-next-criterion");
-    expect(lotLiftMoveCandidates({ state: repeated, turn: price, conversation: [price] })[0]!.id).toBe("price-isolation");
-  });
-
-  it("does not offer irrelevant early evidence to the model", async () => {
-    const irrelevant = prospect("irrelevant", "Our mascot is a pigeon.", 0);
-    const price = prospect("price", "This sounds expensive.", 2_000);
-    const result = await run(newLotLiftCallState("irrelevant"), [irrelevant, price], output("price-isolation", "I hear you. Is the concern the spend itself or whether the value is clear?", ["price"]));
-    expect(result).toMatchObject({ source: "model", move_id: "price-isolation" });
-  });
-
-  it("retrieves early durable evidence after a long call without raw-transcript fallback", async () => {
-    const early = prospect("early", "Leads sit until morning after hours.", 0);
-    const filler = Array.from({ length: 55 }, (_, index) => [rep(`r${index}`, "Thanks for that detail.", index * 400 + 100), prospect(`p${index}`, `Unrelated detail number ${index} ${"x".repeat(220)}.`, index * 400 + 200)]).flat();
-    const price = prospect("price", "This sounds expensive.", 30_000);
-    const state = stateWith([fact("pain_points", "Leads sit until morning after hours", "early")]);
-    const result = await run(state, [early, ...filler, price], output("price-pain-value", "I hear you. Since leads sit until morning after hours, is the concern the spend or whether closing that gap is worth it?", ["price", "early"]));
-    expect(result).toMatchObject({ source: "model", move_id: "price-pain-value" });
-  });
-
-  it("rejects explicit durable facts when their original evidence is not cited", async () => {
-    const crm = prospect("crm", "We use VinSolutions for online leads.", 0);
-    const price = prospect("price", "This is too expensive.", 1_000);
-    const state = stateWith([scalar("current_solution", "VinSolutions", "crm")]);
-    const result = await run(state, [crm, price], output("price-isolation", "I hear you. Since VinSolutions is in place, is the concern the spend or the value?", ["price"]));
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "price-isolation" });
-  });
-
-  it("keeps DNC deterministic and validates bad local output to the visible fallback", async () => {
-    const dnc = prospect("dnc", "Take us off your list.");
-    const dncResult = await run(newLotLiftCallState("dnc"), [dnc], output("identify-owner", "Who owns this?", ["dnc"]));
-    expect(dncResult).toMatchObject({ source: "hard-rule", event_type: "do_not_contact" });
-    const price = prospect("price", "This is too expensive.");
-    const badResult = await run(newLotLiftCallState("bad"), [price], output("invented", "LotLift will save you money.", ["price"]));
-    expect(badResult).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "price-isolation" });
-  });
-
-  it("preserves extracted CRM and after-hours memory for a later realtime decision", async () => {
-    const crm = prospect("crm", "We use VinSolutions.", 0);
-    const afterHours = prospect("after-hours", "Some inquiries after hours sit until morning.", 1_000);
-    const current = prospect("current", "We already have a CRM though.", 2_000);
-    const initial = newLotLiftCallState("memory");
-    const context = buildLotLiftResponseCompositionContext({ state: initial, turn: afterHours, conversation: [crm, afterHours], candidates: lotLiftMoveCandidates({ state: initial, turn: afterHours, conversation: [crm, afterHours] }), responsePolicy: "composable" });
-    const events = validateLotLiftObservationExtraction({ observations: [{ field: "current_solution", value: "VinSolutions", evidence_segment_id: "crm" }, { field: "after_hours_process", value: afterHours.text, evidence_segment_id: "after-hours" }] }, context);
-    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "capture", field: "current_solution" }), expect.objectContaining({ type: "capture", field: "after_hours_process" })]));
-    const persisted = (events ?? []).reduce(reduceLotLiftCallState, initial);
-    const result = await run(persisted, [crm, afterHours, current], output("existing-workflow-coverage", "That makes sense. When inquiries sit until morning, what happens to them?", ["current", "after-hours"]));
-    expect(result).toMatchObject({ source: "model", move_id: "existing-workflow-coverage" });
-  });
-
-  it("keeps the immediate fallback when OpenAI is selected without its configured key", async () => {
-    const turn = prospect("missing-openai-key", "Who is this?");
-    const result = await analyzeLotLiftTurn({
-      state: newLotLiftCallState("missing-openai-key"),
-      turn,
-      conversation: [turn],
-      settings: {
-        llmProviders: { realtime: "openai" },
-        models: { openai: { realtime: "gpt-5.6-terra" } },
-        openaiApiKey: "",
-      } as Settings,
-    });
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "unconfigured", move_id: "identify-owner" });
-  });
-
-  it("keeps the immediate fallback when the local selector times out", async () => {
-    const turn = prospect("timeout", "Who is this?");
-    const result = await analyzeLotLiftTurn({
-      state: newLotLiftCallState("timeout"), turn, conversation: [turn], timeoutMs: 10,
-      model: async ({ signal }) => new Promise<LotLiftTurnModelOutput>((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })),
-    });
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "timeout", move_id: "identify-owner" });
-  });
-
-  it("rejects unsupported commercial claims even when the model selects an eligible move", async () => {
-    const price = prospect("price", "This sounds expensive.");
-    const result = await run(newLotLiftCallState("claims"), [price], output("price-isolation", "LotLift integrates with every CRM and guarantees a return.", ["price"]));
-    expect(result).toMatchObject({ source: "fallback", fallback_reason: "invalid-output", move_id: "price-isolation" });
-  });
-
-  it("permits ordinary contextual speech that stays within the selected price tactic", async () => {
-    const price = prospect("ordinary-price", "The cost sounds high.");
-    const result = await run(newLotLiftCallState("ordinary-price"), [price], output("price-isolation", "I hear you. Is the concern the spend itself or whether the value is clear?", ["ordinary-price"]));
-
-    expect(result).toMatchObject({ source: "model", move_id: "price-isolation" });
-    expect(result.spoken_response).not.toMatch(/[$€£¥]\s*\d|\b(?:quote|discount|guarantee|roi)\b/i);
-  });
-
-  it("rejects an extracted observation whose cited prospect evidence does not contain its value", () => {
-    const state = newLotLiftCallState("observation");
-    const turn = prospect("observation", "We use VinSolutions.");
-    const context = buildLotLiftResponseCompositionContext({ state, turn, conversation: [turn], candidates: lotLiftMoveCandidates({ state, turn, conversation: [turn] }), responsePolicy: "composable" });
-    expect(validateLotLiftObservationExtraction({ observations: [{ field: "current_solution", value: "DealerSocket", evidence_segment_id: "observation" }] }, context)).toBeNull();
-  });
-
-  it("does not let an extracted observation replace conflicting verified state", () => {
-    const state = stateWith([scalar("current_solution", "VinSolutions", "verified-crm")]);
-    const turn = prospect("new-crm", "We use DealerSocket CRM now.");
-    const context = buildLotLiftResponseCompositionContext({ state, turn, conversation: [turn], candidates: lotLiftMoveCandidates({ state, turn, conversation: [turn] }), responsePolicy: "composable" });
-    expect(validateLotLiftObservationExtraction({ observations: [{ field: "current_solution", value: "DealerSocket", evidence_segment_id: "new-crm" }] }, context)).toBeNull();
-  });
-
-  it("permits the workflow-check move only after its verified policy gates", async () => {
-    const evidence = { segment_id: "ready", text: "confirmed" };
-    const state = stateWith([
-      { type: "capture", field: "workflow_owner", fact: { value: "manager", status: "verified", evidence } },
-      { type: "capture", field: "authority", fact: { value: "owner", status: "verified", evidence } },
-      { type: "append", field: "lead_sources", fact: { value: "AutoTrader", status: "verified", evidence } },
-      { type: "append", field: "pain_points", fact: { value: "unworked leads", status: "verified", evidence } },
-      { type: "capture", field: "after_hours_process", fact: { value: "no coverage", status: "verified", evidence } },
-      { type: "capture", field: "visibility_process", fact: { value: "no review", status: "verified", evidence } },
-    ]);
-    const turn = prospect("ready", "That sounds useful.");
-    const result = await run(state, [turn], output("workflow-check", "It sounds worth mapping the workflow in a short 15-minute check. Would you be open to that?", ["ready"]));
-    expect(result).toMatchObject({ source: "hard-rule", move_id: "workflow-check" });
+  it("closes on DNC and second refusal deterministically", async () => {
+    const dnc = await analyzeLotLiftTurn({ state: newLotLiftCallState("dnc"), turn: prospect("turn", "Do not call me again."), conversation: [prospect("turn", "Do not call me again.")], model: async () => output("Unused response. How are leads handled?"), resolvedProfile: profile });
+    expect(dnc).toMatchObject({ source: "hard-rule", event_type: "do_not_contact" });
+    const state = reduceLotLiftCallState(newLotLiftCallState("no"), { type: "coaching-progress", move_id: "terra-composition", substantive_refusal: true } as CallStateEvent);
+    const refusal = await analyzeLotLiftTurn({ state, turn: prospect("turn", "No thanks."), conversation: [prospect("turn", "No thanks.")], model: async () => output("Unused response. How are leads handled?"), resolvedProfile: profile });
+    expect(refusal).toMatchObject({ source: "hard-rule", move_id: "second-no-close" });
   });
 });

@@ -1,14 +1,15 @@
 import { lotLiftPlaybookSection, lotLiftSalesPilotProfile } from "../../src/lib/lotlift/playbook";
 import { registerSalesProfile, type SalesProfile } from "../../src/lib/sales/profiles";
 import { LOTLIFT_KNOWLEDGE_ATTACHMENTS } from "./methodology";
+import conversationPlaybook from "./PROFILE.md?raw";
 
 export const LOTLIFT_COLD_OUTBOUND_PROFILE: SalesProfile = {
   id: "lotlift-cold-outbound",
   businessId: "lotlift",
   label: "LotLift — Cold Outbound",
   motion: "cold-outbound",
-  profile: { version: "1", status: "approved" },
-  playbook: { version: "1", status: "approved" },
+  profile: { version: "2", status: "approved" },
+  playbook: { version: "2", status: "approved" },
   productFacts: { version: "1", status: "approved" },
   evaluation: { version: "1", status: "approved" },
   vocabulary: ["LotLift", "Cars.com", "CarGurus", "AutoTrader", "BDC", "CRM", "DMS"],
@@ -16,6 +17,7 @@ export const LOTLIFT_COLD_OUTBOUND_PROFILE: SalesProfile = {
   prohibitedClaims: ["pricing", "integration", "ROI", "customer claims", "booking", "email", "CRM", "owner claims"],
   responsePolicy: { allowCitedProductFacts: true, allowDeterministicFallback: true },
   productFactEntries: lotLiftSalesPilotProfile.productFacts.map((fact) => ({ ...fact, version: "1", approval: { version: "1", status: "approved" } })),
+  conversationPlaybook,
   behavior: {
     version: 1,
     objective: lotLiftSalesPilotProfile.objective,
@@ -37,7 +39,7 @@ export const LOTLIFT_COLD_OUTBOUND_PROFILE: SalesProfile = {
       { id: "ai-skepticism", title: "Clarify AI concern", goal: "Acknowledge AI skepticism, explain the workflow purpose, and learn the actual concern.", script: "Fair concern, the purpose is to understand the online-inquiry workflow before recommending anything. What specifically concerns you about AI in that workflow?", responseMode: "compose", maxWords: 30, variables: [], turnStrategy: { objective: "Clarify the AI concern without product, performance, replacement, or security claims.", approach: ["Acknowledge the concern.", "Explain the workflow-level purpose without promising capabilities.", "Ask one diagnostic question."], avoid: ["Do not claim replacement, autonomous results, performance, or security capabilities.", "Do not feature dump or argue."], desiredProgression: "Understand the real concern before discussing any solution." } },
       { id: "staff-adoption", title: "Clarify staff adoption concern", goal: "Acknowledge the adoption concern and learn what made the prior effort difficult.", script: "That makes sense. [adoption question]", responseMode: "compose", maxWords: 25, variables: ["adoption question"], turnStrategy: { objective: "Diagnose the adoption barrier without promising product outcomes.", approach: ["Acknowledge the prior difficulty or concern.", "Ask one question tailored to training, trust, or prior adoption."], avoid: ["Do not claim automation, results, monitoring, or staff replacement.", "Do not promise implementation or adoption."], desiredProgression: "Learn what caused adoption to fail before discussing a solution." } },
       { id: "guided-objection-discovery", title: "Clarify an unfamiliar concern", goal: "Acknowledge the concern and ask one diagnostic question without making a claim.", script: "That makes sense. What part of that concerns you most?", responseMode: "compose", maxWords: 18, variables: [] },
-      { id: "contextual-response", title: "Respond to the prospect's context", goal: "Answer or acknowledge the current point safely, then clarify one useful unresolved detail.", script: "[contextual question]", responseMode: "compose", maxWords: 35, variables: ["contextual question"], turnStrategy: { objective: "Disarm, understand, then advance using only current evidence and approved product facts.", approach: ["Answer an explicit question first, or acknowledge the stated concern without arguing.", "Use verified call context and cited approved product facts only when they directly answer the point.", "Ask at most one neutral question about the next unresolved useful workflow detail."], avoid: ["Do not reuse an unrelated stage prompt or repeat a verified field.", "Do not invent capabilities, results, monitoring, replacement, pricing, integration, security, or guarantees.", "Do not feature dump, name a framework, argue, or rush a meeting."], desiredProgression: "Clarify the prospect's concern while naturally advancing one unresolved workflow detail." } },
+      { id: "terra-composition", title: "Compose the current sales turn", goal: "Disarm, understand, and advance one state-aware unresolved objective.", script: "[contextual question]", responseMode: "compose", maxWords: 35, variables: ["contextual question"], turnStrategy: { objective: "Disarm, understand, then advance using only current evidence and approved product facts.", approach: ["Answer an explicit question first, or acknowledge the stated concern without arguing.", "Use verified call context and cited approved product facts only when they directly answer the point.", "Ask at most one neutral question about the next unresolved useful workflow detail."], avoid: ["Do not repeat a verified field or restart the opener after a transfer.", "Do not invent capabilities, results, monitoring, replacement, pricing, integration, security, or guarantees.", "Do not feature dump, name a framework, argue, or rush a meeting."], desiredProgression: "Clarify the prospect's concern while naturally advancing one unresolved workflow detail." } },
       { id: "lead-source", title: "Confirm lead sources", goal: "Establish whether paid online inquiries are relevant.", script: "Which online sources generate most buyer inquiries for you today?", responseMode: "compose", maxWords: 20, variables: [] },
       { id: "confirm-authority", title: "Confirm decision ownership", goal: "Clarify the decision path before a workflow check.", script: "If you found a coverage gap, are you the person who would decide whether to review that workflow?", responseMode: "compose", maxWords: 30, variables: [] },
       { id: "workflow-check", title: "Invite a workflow check", goal: "Offer the approved 15-minute next step after a verified workflow gap.", script: "That's really what I wanted to understand. Give me 15 minutes, I'll show you how LotLift handles that piece, and you can tell me if it makes sense. Is Tuesday or Thursday better?", responseMode: "verbatim", maxWords: 38, variables: [] },

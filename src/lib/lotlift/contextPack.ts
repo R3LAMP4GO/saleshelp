@@ -88,7 +88,7 @@ function values(field: string, facts: readonly LotLiftFieldValue<string>[]): Con
 }
 
 export function lotLiftDurableFacts(state: LotLiftCallState): ContextPackFact[] {
-  const scalarFields = ["current_solution", "authority", "stated_readiness", "urgency", "next_action", "renewal_date", "lead_arrival_point", "workflow_owner", "after_hours_process", "visibility_process"] as const;
+  const scalarFields = ["current_solution", "authority", "stated_readiness", "urgency", "next_action", "renewal_date", "lead_arrival_point", "workflow_owner", "after_hours_process", "response_speed", "appointment_capability", "follow_up_process", "visibility_process"] as const;
   const listFields = ["pain_points", "quantified_pain", "decision_stakeholders", "stakeholders", "decision_blockers", "commitments", "buying_signals", "prior_answers", "open_questions"] as const;
   return [
     ...scalarFields.flatMap((field) => values(field, [state[field]])),

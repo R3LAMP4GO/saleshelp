@@ -53,6 +53,16 @@ describe("LotLift Call State", () => {
     expect(deriveLotLiftCallPhase(state)).toBe("MEETING_ASK");
   });
 
+  it("does not advance to GAP_FOUND for inferred appended pain", () => {
+    let state = newLotLiftCallState("inferred-gap");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle online leads") });
+    state = reduceLotLiftCallState(state, { type: "coaching-progress", move_id: "right-person-process" });
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: inferred("Leads may be missed") });
+
+    expect(state.phase).toBe("DISCOVERY");
+    expect(deriveLotLiftCallPhase(state)).toBe("DISCOVERY");
+  });
+
   it("derives stages from verified evidence and records deterministic move progress", () => {
     let state = newLotLiftCallState("call-stage");
     expect(deriveLotLiftConversationStage(state)).toBe("owner-identification");
@@ -96,6 +106,20 @@ describe("LotLift Call State", () => {
 
     expect(repeated.lead_sources).toEqual([verified("Autotrader")]);
     expect(repeated.recurring_objections).toEqual([{ ...verified("price", "segment-3"), count: 2, resolved: false }]);
+  });
+
+  it("admits all new workflow diagnostics from an AI state patch", () => {
+    const patched = applyLotLiftAiStatePatch(newLotLiftCallState("workflow-patch"), {
+      response_speed: inferred("Replies in roughly five minutes"),
+      appointment_capability: inferred("Gets qualified buyers onto the calendar"),
+      follow_up_process: inferred("Keeps following up for three days"),
+    });
+
+    expect(patched).toMatchObject({
+      response_speed: { value: "Replies in roughly five minutes", status: "inferred" },
+      appointment_capability: { value: "Gets qualified buyers onto the calendar", status: "inferred" },
+      follow_up_process: { value: "Keeps following up for three days", status: "inferred" },
+    });
   });
 
   it("preserves DNC evidence and blocks automatic outreach", () => {

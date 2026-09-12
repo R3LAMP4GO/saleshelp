@@ -4,7 +4,7 @@ import { LotLiftCallStateManager, newLotLiftCallState, reduceLotLiftCallState, t
 import { lotLiftDecisionContextChange, lotLiftDecisionContextEvent } from "./decisionContext";
 import { DO_NOT_CONTACT_RESPONSE, isDoNotContactRequest } from "./dnc";
 import type { ApprovedLotLiftResponse } from "./objections";
-import { analyzeLotLiftTurn, extractLotLiftObservations } from "./turnIntelligence";
+import { analyzeLotLiftTurn } from "./turnIntelligence";
 import { markLotLiftTurn, measureLotLiftHardRule, startLotLiftTurn } from "./latency";
 import { setLotLiftLiveStatus } from "./liveStatus";
 import { canonicalProspectId, leadMemory } from "../sales/leadMemory";
@@ -141,11 +141,6 @@ export function initLotLiftCoach(callStates = defaultCallStates, turnAnalyzer = 
             ? { ...moveResponse(result.selected_move), provenance: "safe-fallback" }
             : deterministicResponse;
         display(segment, contextualResponse, false, decisionEvidence ?? undefined);
-        // Memory is deliberately best-effort and cannot delay or replace Say This Now.
-        void extractLotLiftObservations({ settings: state.settings, state: callStates.stateFor(callId)!, turn: segment, conversation, signal: controller.signal }).then((events) => {
-          if (!events.length || controller.signal.aborted || newestProspectSegmentId !== segment.id) return;
-          if (callStates.record(callId, `${segment.id}:memory`, events)) void callStates.flush(callId).then(() => markLotLiftTurn(segment.id, "persisted"));
-        });
       } catch {
         if (controller.signal.aborted || newestProspectSegmentId !== segment.id || localSelectionAbort !== controller) return;
         setLotLiftLiveStatus("Local model unavailable");

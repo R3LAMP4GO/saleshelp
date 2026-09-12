@@ -46,11 +46,11 @@ describe("LotLift Coach immediate path", () => {
     await callStates.flush("owner-flow");
     expect(callStates.stateFor("owner-flow")?.workflow_owner.status).toBe("verified");
     expect(callStates.stateFor("owner-flow")?.pending_answer).toBeNull();
-    expect(useStore.getState().findingSolutions["lotlift-owner"]?.solution?.replies[0]?.reply).toContain("How are you guys handling your online leads right now, especially after hours?");
+    expect(useStore.getState().findingSolutions["lotlift-owner"]?.solution?.replies[0]?.reply).toContain("How are online leads handled today, especially after hours?");
 
     useStore.setState({ segments: [...useStore.getState().segments, { id: "why", source: "them", speaker: 0, isFinal: true, startMs: 4, endMs: 5, text: "Why are you calling?" }] });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useStore.getState().findings.find((finding) => finding.id === "lotlift-why")?.lotLiftRecommendation?.moveId).toBe("contextual-response");
+    expect(useStore.getState().findings.find((finding) => finding.id === "lotlift-why")?.lotLiftRecommendation?.moveId).toBe("terra-composition");
     expect(useStore.getState().solutionFindingId).toBeNull();
   });
 

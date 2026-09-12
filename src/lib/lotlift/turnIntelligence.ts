@@ -257,8 +257,8 @@ export async function analyzeLotLiftTurn(opts: { state: LotLiftCallState; turn: 
   const onHostedResponse = () => {
     logLotLiftComposerDiagnostic({ event: "response-received", elapsed_ms: Math.round(performance.now() - startedAt), ...diagnosticBase });
   };
-  const run = model ? model(request) : defaultModel(settings!, request, context, onOllamaResponse, onHostedResponse);
   try {
+    const run = Promise.resolve().then(() => model ? model(request) : defaultModel(settings!, request, context, onOllamaResponse, onHostedResponse));
     const output = await Promise.race([run, abortResult]);
     const modelElapsed = Math.round(performance.now() - startedAt);
     const totalContextualMs = Math.round(performance.now() - contextualStartedAt);
