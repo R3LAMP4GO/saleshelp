@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { log } from "../log";
 
-export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 6;
+export const LOTLIFT_CALL_STATE_SCHEMA_VERSION = 7;
 
 export interface LotLiftEvidence {
   segment_id: string;
@@ -74,12 +74,16 @@ export type LotLiftConversationStage =
   | "terminal"
   | "disqualified";
 
+/** Persisted v7 call flow. Transitions only advance unless a terminal state takes precedence. */
+export type LotLiftCallPhase = "GATEKEEPER" | "RIGHT_PERSON" | "DISCOVERY" | "GAP_FOUND" | "MEETING_ASK" | "TERMINAL";
+
 export type LotLiftDiscoveryDimension = "lead-source" | "ownership" | "after-hours" | "visibility" | "pain" | "authority" | "urgency";
 
 export interface LotLiftCallState {
   schema_version: number;
   call_id: string;
   revision: number;
+  phase: LotLiftCallPhase;
   dealership: LotLiftFieldValue<string>;
   contact_name: LotLiftFieldValue<string>;
   role: LotLiftFieldValue<string>;
@@ -129,6 +133,7 @@ export function newLotLiftCallState(callId: string): LotLiftCallState {
     schema_version: LOTLIFT_CALL_STATE_SCHEMA_VERSION,
     call_id: callId,
     revision: 0,
+    phase: "GATEKEEPER",
     dealership: unknownLotLiftField(),
     contact_name: unknownLotLiftField(),
     role: unknownLotLiftField(),
@@ -176,6 +181,7 @@ export type CallStateEvent =
   | { type: "recurring-objection"; fact: LotLiftFieldValue<string> }
   | { type: "decision-context"; readiness?: LotLiftFieldValue<string>; blockers: LotLiftFieldValue<string>[]; stakeholders: LotLiftFieldValue<string>[]; selected_objection_route?: LotLiftFieldValue<string> }
   | { type: "coaching-progress"; move_id: string; discovery_dimension?: LotLiftDiscoveryDimension; substantive_refusal?: boolean }
+  | { type: "phase"; phase: LotLiftCallPhase }
   | { type: "pending-answer"; pending: LotLiftPendingAnswer | null }
   | { type: "do-not-contact"; at: string; evidence: LotLiftEvidence };
 
@@ -239,6 +245,16 @@ export function applyLotLiftAiStatePatch(state: LotLiftCallState, patch: Partial
   return next;
 }
 
+/** Derives the durable v7 phase from terminal state and verified prospect evidence. */
+export function deriveLotLiftCallPhase(state: LotLiftCallState): LotLiftCallPhase {
+  const verified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
+  const anyVerified = (facts: readonly LotLiftFieldValue<string>[]) => facts.some(verified);
+  if (state.do_not_contact || state.substantive_refusal_count >= 2 || verified(state.disqualification_reason)) return "TERMINAL";
+  // Legacy snapshots have no phase; verified ownership is enough to permanently leave the gatekeeper.
+  if (state.phase === "GATEKEEPER" && (verified(state.workflow_owner) || verified(state.role) || anyVerified(state.stakeholders))) return "RIGHT_PERSON";
+  return state.phase;
+}
+
 /** Derives the bounded policy stage from terminal state and verified prospect evidence only. */
 export function deriveLotLiftConversationStage(state: LotLiftCallState): LotLiftConversationStage {
   const verified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
@@ -262,14 +278,35 @@ export function reduceLotLiftCallState(state: LotLiftCallState, event: CallState
     case "do-not-contact": return state.do_not_contact
       ? state
       : { ...state, do_not_contact: true, dnc_at: event.at, dnc_evidence: event.evidence };
-    case "capture": return { ...state, [event.field]: mergeLotLiftField(state[event.field], event.fact) };
-    case "append": return { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
-    case "coaching-progress": return {
-      ...state,
-      last_move_id: event.move_id,
-      last_discovery_dimension: event.discovery_dimension ?? state.last_discovery_dimension,
-      substantive_refusal_count: event.substantive_refusal ? Math.min(2, state.substantive_refusal_count + 1) : state.substantive_refusal_count,
-    };
+    case "capture": {
+      const next = { ...state, [event.field]: mergeLotLiftField(state[event.field], event.fact) };
+      return event.field === "workflow_owner" && event.fact.status === "verified" && event.fact.value
+        ? { ...next, phase: deriveLotLiftCallPhase(next) === "GATEKEEPER" ? "RIGHT_PERSON" : deriveLotLiftCallPhase(next) }
+        : next;
+    }
+    case "append": {
+      const next = { ...state, [event.field]: mergeLotLiftFieldList(state[event.field], [event.fact]) };
+      return event.field === "pain_points" || event.field === "quantified_pain"
+        ? { ...next, phase: "GAP_FOUND" }
+        : next;
+    }
+    case "phase": {
+      const current = deriveLotLiftCallPhase(state);
+      const order: Record<LotLiftCallPhase, number> = { GATEKEEPER: 0, RIGHT_PERSON: 1, DISCOVERY: 2, GAP_FOUND: 3, MEETING_ASK: 4, TERMINAL: 5 };
+      return order[event.phase] >= order[current] ? { ...state, phase: event.phase } : state;
+    }
+    case "coaching-progress": {
+      const progressedPhase = event.move_id === "right-person-process" ? "DISCOVERY"
+        : event.move_id === "workflow-check" ? "MEETING_ASK"
+        : state.phase;
+      return {
+        ...state,
+        phase: progressedPhase,
+        last_move_id: event.move_id,
+        last_discovery_dimension: event.discovery_dimension ?? state.last_discovery_dimension,
+        substantive_refusal_count: event.substantive_refusal ? Math.min(2, state.substantive_refusal_count + 1) : state.substantive_refusal_count,
+      };
+    }
     case "decision-context": {
       const explicit = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && !!fact.value && !!fact.evidence;
       return {

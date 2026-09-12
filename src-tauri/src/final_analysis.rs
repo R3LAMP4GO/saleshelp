@@ -115,6 +115,7 @@ fn state_from_analysis(analysis: &FinalCallAnalysis) -> CallState {
         schema_version: call_state::SCHEMA_VERSION,
         call_id: analysis.call_id.clone(),
         revision: analysis.source_call_state_revision,
+        phase: "GATEKEEPER".into(),
         dealership: analysis.dealership.clone(),
         contact_name: analysis.contact_name.clone(),
         role: analysis.role.clone(),
@@ -152,6 +153,15 @@ fn state_from_analysis(analysis: &FinalCallAnalysis) -> CallState {
         dnc_evidence: analysis.dnc_evidence.clone(),
         next_action: analysis.next_action.clone(),
         next_action_at: analysis.next_action_at.clone(),
+        selected_objection_route: FieldValue {
+            value: None,
+            status: FactStatus::Unknown,
+            evidence: None,
+        },
+        last_discovery_dimension: None,
+        last_move_id: None,
+        substantive_refusal_count: 0,
+        pending_answer: None,
     }
 }
 

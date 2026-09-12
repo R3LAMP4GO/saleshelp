@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyLotLiftAiStatePatch,
+  deriveLotLiftCallPhase,
   deriveLotLiftConversationStage,
   lotLiftAutomationEligibility,
   LotLiftCallStateManager,
@@ -27,7 +28,8 @@ describe("LotLift Call State", () => {
     const state = newLotLiftCallState("call_1");
 
     expect(state).toMatchObject({
-      schema_version: 6,
+      schema_version: 7,
+      phase: "GATEKEEPER",
       dealership: { value: null, status: "unknown", evidence: null },
       lead_arrival_point: { value: null, status: "unknown", evidence: null },
       renewal_date: { value: null, status: "unknown", evidence: null },
@@ -45,6 +47,7 @@ describe("LotLift Call State", () => {
     let state = newLotLiftCallState("call-stage");
     expect(deriveLotLiftConversationStage(state)).toBe("owner-identification");
     state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("BDC manager") });
+    expect(deriveLotLiftCallPhase(state)).toBe("RIGHT_PERSON");
     expect(deriveLotLiftConversationStage(state)).toBe("relevance-discovery");
     state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("AutoTrader") });
     expect(deriveLotLiftConversationStage(state)).toBe("gap-confirmation");

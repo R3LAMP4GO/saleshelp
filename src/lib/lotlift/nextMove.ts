@@ -1,5 +1,6 @@
 import type { TranscriptSegment } from "../types";
 import {
+  deriveLotLiftCallPhase,
   deriveLotLiftConversationStage,
   type CallStateEvent,
   type LotLiftCallState,
@@ -51,6 +52,8 @@ const UNSUPPORTED_FIT = /\b(?:we\s+(?:do\s+not|don't)\s+use\s+(?:cars\.com|cargu
 const PAIN = /\b(?:(?:miss(?:ed|ing)?|los(?:e|ing))\s+(?:online\s+)?(?:leads?|inquir(?:y|ies))|recover(?:ing)?\b[^.?!]{0,80}\bleads?\b|leads?\s+(?:sit|wait|go\s+unworked)|not\s+(?:being\s+)?followed\s+up|fall(?:s|ing)\s+through\s+the\s+cracks)\b/i;
 const AUTHORITY = /\b(?:i\s+(?:make|own|handle)\s+(?:that|the)\s+decision|my\s+decision|i['’]m\s+the\s+(?:owner|gm|general\s+manager|sales\s+manager|internet\s+manager|bdc\s+manager))\b/i;
 const OWNER = /\b(?:i['’]m|i\s+am)\s+(?:the\s+)?(?:owner|gm|general\s+manager|sales\s+manager|internet\s+manager|bdc\s+manager)\b/i;
+const OWNER_SELF_CONFIRMATION = /\bthat(?:'s| is)\s+me\b|\b(?:i['’]m|i\s+am)\s+(?:in\s+charge|responsible)|\bthat\s+falls\s+under\s+me\b|\b(?:online|paid\s+online)\s+leads?\s+(?:are|is)\s+mine\b|\bi\s+(?:handle|manage|own)\s+(?:that|them|online\s+leads?)\b/i;
+const OWNER_CORRECTION = /\b(?:actually|no),?\s+(?:i|the\s+(?:internet|sales|bdc)\s+manager|[A-Z][a-z]+)\s+(?:handle|handles|own|owns|manage|manages|am\s+responsible)\b/i;
 const PRICE_CONCERN = /\b(?:too expensive|sounds? expensive|too much money|no budget|can(?:not|'t) afford|costs? too much|(?:price|cost) (?:feels?|sounds?|is) (?:too )?high|how much(?: is it)?|what does (?:it|that) cost|pricing)\b/i;
 const VALUE_UNCERTAINTY = /\b(?:value (?:is )?(?:not |isn['’]?t )?clear|whether (?:the )?value is clear|not sure (?:it['’]?s|it is|this is) worth)\b/i;
 const LONG_TENURE_OR_STATUS_QUO = /\b(?:for\s+(?:\d+|many)\s+years?|for\s+decades?|worked\s+for\s+(?:years?|decades?)|happy\s+with\s+(?:what\s+we\s+have|our\s+(?:system|process|vendor|crm))|our\s+(?:dms|crm|process)\s+has\s+worked)\b/i;
@@ -58,8 +61,6 @@ const AI_SKEPTICISM = /\b(?:ai|artificial intelligence|hype|gimmick|replace\s+(?
 const STAFF_ADOPTION = /\b(?:team\s+(?:already\s+)?ignores?\s+(?:half\s+)?(?:the\s+)?tools|(?:too\s+much\s+)?turnover\s+to\s+train|tried\s+software\s+like\s+this\s+before\s+and\s+nobody\s+used)\b/i;
 const DIRECT_PRODUCT_QUESTION = /(?:\b(?:do|does|can|is|are|what|how|why)\b[^.?!]{0,60}\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b|\b(?:ai|artificial intelligence|automated?|auto[- ]?send|security|secure|integration|integrate)\b[^.?!]{0,60}\?)/i;
 const SUBSTANTIVE_QUESTION = /\?|\b(?:what|why|how|when|where|who|do|does|can|could|would|will|is|are)\b[^.?!]{0,90}\b(?:you|this|that|it|we|lotlift|help|work|mean|calling|integrat|secure|ai|change|cost)/i;
-const CONTEXTUAL_CONCERN = /\b(?:spying|watching|intrusive|worr(?:y|ied)|concern(?:ed)?|skepti(?:c|cal)|hype|gimmick|worked for|happy with|why would we change|not sure|doesn['’]?t make sense|don['’]?t understand|confus(?:ed|ing))\b/i;
-const DIRECT_REQUEST = /\b(?:tell|explain|walk)\s+(?:me|us)\s+(?:more|through)|\b(?:go on|say more|help me understand)\b/i;
 const CRM_MENTION = /\b(?:use|using)\s+([A-Z][A-Za-z0-9-]{2,})(?:\s+CRM)?\b/;
 const AFTER_HOURS_GAP = /\b(?:after hours|overnight).{0,80}\b(?:sit|wait|unworked).{0,80}\b(?:morning|until)/i;
 
@@ -103,13 +104,14 @@ export function deriveLotLiftCurrentTurnState(state: LotLiftCallState, turn: Tra
   const evidence = { segment_id: turn.id, text: boundedEvidence(turn) };
   const events = [...assimilatePendingAnswer(state, turn)];
   let derived = events.reduce(reduceLotLiftCallState, state);
-  const capture = (field: "workflow_owner" | "authority" | "current_solution" | "after_hours_process", value: string) => {
-    if (derived[field].status === "verified") return;
+  const capture = (field: "workflow_owner" | "authority" | "current_solution" | "after_hours_process", value: string, replaceVerified = false) => {
+    if (derived[field].status === "verified" && !replaceVerified) return;
     const event: CallStateEvent = { type: "capture", field, fact: { value, status: "verified", evidence } };
     events.push(event);
     derived = reduceLotLiftCallState(derived, event);
   };
-  if (OWNER.test(text)) capture("workflow_owner", text);
+  if (OWNER.test(text) || OWNER_SELF_CONFIRMATION.test(text)) capture("workflow_owner", text);
+  if (OWNER_CORRECTION.test(text)) capture("workflow_owner", text, true);
   if (AUTHORITY.test(text)) capture("authority", text);
   const crm = text.match(CRM_MENTION)?.[1];
   if (crm) capture("current_solution", crm);
@@ -126,20 +128,36 @@ function isSubstantiveQuestion(text: string): boolean {
   return SUBSTANTIVE_QUESTION.test(text);
 }
 
-function isContextualConcern(text: string): boolean {
-  return CONTEXTUAL_CONCERN.test(text) || DIRECT_REQUEST.test(text) || LONG_TENURE_OR_STATUS_QUO.test(text) || DIRECT_PRODUCT_QUESTION.test(text);
+function isNormalFactualProgression(currentTurn: LotLiftCurrentTurnState, text: string): boolean {
+  if (currentTurn.events.some((event) => event.type === "capture" || event.type === "append")) return true;
+  if (LONG_TENURE_OR_STATUS_QUO.test(text)) return false;
+  const normalized = normalizeForIntent(text);
+  if (/\b(?:no|not|don['’]?t|doesn['’]?t|can['’]?t|won['’]?t|wouldn['’]?t|isn['’]?t|aren['’]?t|never|problem|fit|worth|change|understand|confus|feel|seem|concern|think|believe|want|need|hope|see|sound)\b/.test(normalized)) return false;
+  return /^(?:yeah|yes|yep|correct|right|sure|i (?:do|handle|manage|am)|we (?:use|get|have)|our |mostly\b|mainly\b|primarily\b)/.test(normalized);
 }
 
-/** A factual answer advances the current stage; a question or concern needs a response first. */
-function isContextualResponseEligible(input: LotLiftMoveCandidateInput): boolean {
+/** Route all remaining substantive prospect context before ordinary factual discovery. */
+function isContextualResponseEligible(input: LotLiftMoveCandidateInput, currentTurn: LotLiftCurrentTurnState): boolean {
   const hasConfiguredMove = input.resolvedProfile?.behavior.moves.some((move) => move.id === "contextual-response");
   const substantiveTurn = (input.turn.text.match(/[\p{L}\p{N}]+/gu)?.length ?? 0) >= 3;
   return Boolean(hasConfiguredMove && input.turn.isFinal && input.turn.source === "them" && substantiveTurn
-    && (isSubstantiveQuestion(input.turn.text) || isContextualConcern(input.turn.text)));
+    && !isNormalFactualProgression(currentTurn, input.turn.text));
+}
+
+function nextUnresolvedWorkflowQuestion(state: LotLiftCallState): string {
+  if (!state.lead_sources.some((fact) => fact.status === "verified")) return "Which online sources generate most buyer inquiries today?";
+  if (state.lead_arrival_point.status !== "verified") return "Where do those paid online inquiries arrive first today?";
+  if (state.current_solution.status !== "verified") return "What system or workflow handles those inquiries today?";
+  if (state.after_hours_process.status !== "verified") return "How is coverage handled when an inquiry arrives after hours?";
+  if (state.visibility_process.status !== "verified") return "How does the team verify an inquiry was owned and worked?";
+  if (!state.pain_points.some((fact) => fact.status === "verified")) return "When that workflow breaks down, what happens to the inquiry or customer?";
+  if (state.authority.status !== "verified") return "Are you the person who would decide whether to review that workflow?";
+  return "Would you be open to mapping that workflow in a short 15-minute check?";
 }
 
 /** Safe deterministic fallback must address the actual concern rather than restart generic discovery. */
-function contextualFallback(text: string, isPurposeQuestion: boolean): string {
+function contextualFallback(text: string, isPurposeQuestion: boolean, state: LotLiftCallState): string {
+  if (/\bhow can i help\b/i.test(text)) return `I want to understand the workflow before assuming anything. ${nextUnresolvedWorkflowQuestion(state)}`;
   if (/spying|watching|intrusive/i.test(text)) return "I understand why that could feel like spying. What would be most useful to clarify?";
   if (LONG_TENURE_OR_STATUS_QUO.test(text)) return "I’m not assuming you need to change a process that has worked for years. What would be most useful to clarify?";
   if (/\b(?:ai|artificial intelligence)\b/i.test(text)) return "Fair question about AI—I don’t want to assume how it would fit your workflow. What would be most useful to clarify?";
@@ -161,6 +179,7 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   const move = (id: string, title: string, goal: string, response: string, moveStage: LotLiftConversationStage, source: LotLiftMoveSource, stateEvents: CallStateEvent[], discoveryDimension?: LotLiftDiscoveryDimension, candidateReason = "deterministic policy route") =>
     baseMove(id, title, goal, response, moveStage, source, stateEvents, discoveryDimension, candidateReason, input.resolvedProfile, scriptContext);
   const stage = deriveLotLiftConversationStage(routingState);
+  const phase = deriveLotLiftCallPhase(routingState);
   const evidence = { segment_id: turn.id, text: boundedEvidence(turn) };
   const facts = currentTurn.events;
   const one = (...args: Parameters<typeof move>) => [move(...args)];
@@ -185,6 +204,10 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   const coldCallCard = isIdentityQuestion || isPurposeQuestion ? selectLotLiftColdCallCard(turn, routingState, input.conversation, input.approvedRepIdentity) : null;
   if (coldCallCard?.card.id === "O2") return one("O2", "Who is this?", "Identify the caller truthfully and wait for the prospect's next turn.", coldCallCard.response, "owner-identification", "approved-move", [progress("O2")], undefined, "explicit identity question with configured representative identity");
   if (coldCallCard?.card.id === "O3") return one("O3", "Purpose and permission", "State the truthful purpose, then learn one workflow fact.", coldCallCard.response, "relevance-discovery", "approved-move", [progress("O3")], undefined, "explicit purpose question follows identity or permission");
+  const ownershipConfirmedThisTurn = facts.some((event) => event.type === "capture" && event.field === "workflow_owner" && event.fact.status === "verified");
+  if (phase === "RIGHT_PERSON" && ownershipConfirmedThisTurn) {
+    return one("right-person-process", "Begin right-person process discovery", "Start with the current online-lead process after the prospect confirms responsibility.", "How are you guys handling your online leads right now, especially after hours?", "relevance-discovery", "approved-move", [...facts, progress("right-person-process", "after-hours")], "after-hours", "confirmed right person advances directly to process discovery");
+  }
   if (AI_SKEPTICISM.test(turn.text) && !DIRECT_PRODUCT_QUESTION.test(turn.text)) {
     return [baseMove("ai-skepticism", "Clarify AI concern", "Acknowledge AI skepticism, explain the workflow purpose, and learn the actual concern.", "Fair concern, the purpose is to understand the online-inquiry workflow before recommending anything. What specifically concerns you about AI in that workflow?", stage, "approved-move", [...facts, progress("ai-skepticism")], undefined, "AI skepticism requires safe workflow-purpose clarification", input.resolvedProfile, { representativeName: input.approvedRepIdentity })];
   }
@@ -233,16 +256,18 @@ export function lotLiftMoveCandidates(input: LotLiftMoveCandidateInput): readonl
   }
 
   if (PAIN.test(text) && stage !== "meeting-invitation") return one("impact-coverage", "Lead recovery coverage", "Confirm how the stated impact is covered before offering a workflow check.", "It sounds like delayed online inquiries are creating a real impact. When one comes in, who owns it right away, especially after hours?", stage, "approved-move", [...facts, progress("impact-coverage", "ownership")], "ownership");
-  if (isContextualResponseEligible(input)) {
-    const fallback = contextualFallback(text, isPurposeQuestion);
-    return [baseMove("contextual-response", "Respond to the prospect's context", "Answer or acknowledge the current point safely, then clarify one useful unresolved detail.", fallback, stage, "approved-move", [...facts, progress("contextual-response")], undefined, isDirectQuestion ? "substantive direct question after deterministic and known routes" : "substantive contextual concern after deterministic and known routes", input.resolvedProfile, { ...scriptContext, contextualQuestion: fallback })];
+  if (isContextualResponseEligible(input, currentTurn)) {
+    const fallback = contextualFallback(text, isPurposeQuestion, routingState);
+    return [baseMove("contextual-response", "Respond to the prospect's context", "Answer or acknowledge the current point safely, then clarify one useful unresolved detail.", fallback, stage, "approved-move", [...facts, progress("contextual-response")], undefined, isDirectQuestion ? "substantive direct question after deterministic and known routes" : "remaining substantive prospect context after deterministic and known routes", input.resolvedProfile, { ...scriptContext, contextualQuestion: fallback })];
   }
   if (stage === "owner-identification") return one("identify-owner", "Identify the workflow owner", "Find the person responsible for paid online inquiry coverage.", "Who owns paid online inquiry response there: the internet manager, BDC manager, sales manager, or someone else?", stage, "approved-move", [...facts, progress("identify-owner", "ownership")], "ownership");
   if (stage === "relevance-discovery") return one("lead-source", "Confirm lead sources", "Establish whether paid online inquiries are relevant.", "Which online sources generate most buyer inquiries for you today?", stage, "approved-move", [...facts, progress("lead-source", "lead-source")], "lead-source");
   if (stage === "gap-confirmation") {
-    const dimension: LotLiftDiscoveryDimension = routingState.last_discovery_dimension === "after-hours" ? "visibility" : "after-hours";
-    const response = dimension === "after-hours" ? "How is coverage handled when an online inquiry arrives after hours or the usual person is off?" : "How does the team verify that an online inquiry was owned and worked, rather than sitting in an inbox?";
-    return one(`gap-${dimension}`, "Confirm the workflow gap", "Learn whether ownership or visibility leaves inquiries unworked.", response, stage, "approved-move", [...facts, progress(`gap-${dimension}`, dimension)], dimension);
+    const afterHoursKnown = routingState.after_hours_process.status === "verified";
+    const visibilityKnown = routingState.visibility_process.status === "verified";
+    if (!afterHoursKnown && routingState.last_discovery_dimension !== "after-hours") return one("gap-after-hours", "Confirm after-hours coverage", "Learn how paid online inquiries are covered after hours.", "How is coverage handled when an online inquiry arrives after hours or the usual person is off?", stage, "approved-move", [...facts, progress("gap-after-hours", "after-hours")], "after-hours");
+    if (!visibilityKnown) return one("gap-visibility", "Confirm inquiry visibility", "Learn how the team verifies an inquiry was owned and worked.", "How does the team verify that an online inquiry was owned and worked, rather than sitting in an inbox?", stage, "approved-move", [...facts, progress("gap-visibility", "visibility")], "visibility");
+    return one("gap-impact", "Confirm workflow impact", "Learn the impact of any remaining coverage gap before qualifying.", "When that workflow breaks down, what tends to happen to the inquiry or the customer?", stage, "approved-move", [...facts, progress("gap-impact", "pain")], "pain");
   }
   if (stage === "qualification") return one("confirm-authority", "Confirm decision ownership", "Confirm who can decide on a workflow check.", "If you found a coverage gap, are you the person who would decide whether to review that workflow?", stage, "approved-move", [...facts, progress("confirm-authority", "authority")], "authority");
   if (!missingLotLiftTacticContext("scoped-next-step", lotLiftPolicyContext(routingState, turn)).length) return one("workflow-check", "Invite a 15-minute workflow check", "Offer the approved next step after a verified workflow gap, authority, and consent.", "It sounds worth mapping the lead source, ownership, after-hours coverage, and visibility in a short 15-minute workflow check. Would you be open to that?", "meeting-invitation", "approved-move", [...facts, progress("workflow-check")]);

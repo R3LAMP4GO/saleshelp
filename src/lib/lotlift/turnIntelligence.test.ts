@@ -160,7 +160,7 @@ describe("LotLift bounded local SalesPilot", () => {
     expect(requests).toBe(1);
   });
 
-  it("shares assimilated ownership between routing and contextual composition", async () => {
+  it("advances a self-confirmed owner into deterministic right-person discovery", async () => {
     const owner = prospect("owner-answer", "That would be me.");
     let modelPrompt = "";
     const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
@@ -169,9 +169,8 @@ describe("LotLift bounded local SalesPilot", () => {
       modelPrompt = prompt;
       return output("lead-source", "Which online sources generate most buyer inquiries for you today?", [owner.id]);
     } });
-    expect(ownerResult.source).toBe("model");
-    expect(modelPrompt).toContain("That would be me.");
-    expect(modelPrompt).toContain("workflow_owner");
+    expect(ownerResult).toMatchObject({ source: "hard-rule", move_id: "right-person-process", selected_move: { response: "How are you guys handling your online leads right now, especially after hours?" } });
+    expect(modelPrompt).toBe("");
     const nextState = ownerResult.state_events.reduce(reduceLotLiftCallState, state);
     const why = prospect("why-after-owner", "Why are you calling?");
     const whyResult = await analyzeLotLiftTurn({ state: nextState, turn: why, conversation: [rep("o3", "Is that you?"), owner, why], resolvedProfile: profile, model: async () => output("contextual-response", "I'm calling to understand your online inquiry workflow. What would be most useful to clarify?", [why.id]) });

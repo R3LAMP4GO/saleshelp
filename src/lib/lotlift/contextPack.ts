@@ -197,12 +197,16 @@ function stakeholderContext(state: LotLiftCallState): LotLiftStakeholderContext 
 }
 
 export function nextUnresolvedLotLiftWorkflowDetail(state: LotLiftCallState): string | null {
-  if (!state.workflow_owner.value) return "who owns paid online inquiry response";
-  if (!state.lead_arrival_point.value) return "where paid online inquiries arrive";
-  if (!state.after_hours_process.value) return "how paid online inquiries are handled after hours";
-  if (!state.visibility_process.value) return "how the team verifies inquiries were worked";
-  if (!state.authority.value) return "who can decide whether to review the workflow";
-  return null;
+  const verified = (fact: LotLiftFieldValue<string>) => fact.status === "verified" && Boolean(fact.value && fact.evidence);
+  if (!verified(state.workflow_owner)) return "who owns paid online inquiry response";
+  if (!state.lead_sources.some(verified)) return "which sources generate paid online inquiries";
+  if (!verified(state.lead_arrival_point)) return "where paid online inquiries arrive";
+  if (!verified(state.current_solution)) return "which current system or workflow handles those inquiries";
+  if (!verified(state.after_hours_process)) return "how paid online inquiries are handled after hours";
+  if (!verified(state.visibility_process)) return "how the team verifies inquiries were worked";
+  if (!state.pain_points.some(verified)) return "what impact an unworked inquiry has";
+  if (!verified(state.authority)) return "who can decide whether to review the workflow";
+  return "whether to map the workflow in a short 15-minute check";
 }
 
 /** Full, role-aware composition payload. Limits are detected by the composer; this never truncates. */

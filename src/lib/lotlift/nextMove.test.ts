@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { newLotLiftCallState, reduceLotLiftCallState } from "./callState";
-import { lotLiftMoveCandidates, selectLotLiftNextMove } from "./nextMove";
+import { deriveLotLiftCallPhase, newLotLiftCallState, reduceLotLiftCallState } from "./callState";
+import { deriveLotLiftCurrentTurnState, lotLiftMoveCandidates, selectLotLiftNextMove } from "./nextMove";
 import type { TranscriptSegment } from "../types";
 import { LOTLIFT_COLD_OUTBOUND_PROFILE } from "../../../sales-profiles/lotlift/profile";
 import { resolveSalesProfile } from "../sales/profiles";
@@ -14,6 +14,34 @@ describe("LotLift next moves", () => {
     const move = select(newLotLiftCallState("unmatched"), "Can you explain what you mean?");
     expect(move).toMatchObject({ id: "identify-owner", source: "approved-move" });
     expect(move.response).toContain("Who owns paid online inquiry response");
+  });
+
+  it.each(["I'm in charge of it.", "That falls under me.", "Online leads are mine.", "Yeah, I handle that."])("verifies an explicit ownership confirmation: %s", (text) => {
+    const current = deriveLotLiftCurrentTurnState(newLotLiftCallState(`owner-${text}`), turn(text));
+    expect(current.state.workflow_owner).toMatchObject({ status: "verified", value: text });
+  });
+
+  it("moves a self-confirmed gatekeeper into right-person discovery without re-asking ownership", () => {
+    const initial = newLotLiftCallState("gatekeeper-self-confirmation");
+    const prospect = turn("That's me.", "self-confirmation");
+    const current = deriveLotLiftCurrentTurnState(initial, prospect);
+    const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
+    const candidates = lotLiftMoveCandidates({ state: initial, turn: prospect, conversation: [prospect], currentTurnState: current, resolvedProfile: profile });
+
+    expect(current.state.workflow_owner).toMatchObject({ status: "verified", value: "That's me." });
+    expect(deriveLotLiftCallPhase(current.state)).toBe("RIGHT_PERSON");
+    expect(candidates[0]).toMatchObject({ id: "right-person-process", stage: "relevance-discovery" });
+    expect(candidates.map((candidate) => candidate.id)).not.toContain("O3");
+    expect(candidates.map((candidate) => candidate.id)).not.toContain("identify-owner");
+    expect(candidates[0]?.response).toBe("How are you guys handling your online leads right now, especially after hours?");
+  });
+
+  it("updates verified ownership only from an explicit correction", () => {
+    let state = newLotLiftCallState("owner-correction");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("Jordan handles paid online leads.", "jordan") });
+    const current = deriveLotLiftCurrentTurnState(state, turn("Actually, Sarah handles paid online leads.", "sarah"));
+
+    expect(current.state.workflow_owner).toMatchObject({ status: "verified", value: "Actually, Sarah handles paid online leads.", evidence: { segment_id: "sarah" } });
   });
 
   it("uses a distinct lead-recovery coverage move instead of the generic question", () => {
@@ -197,13 +225,63 @@ describe("LotLift next moves", () => {
     expect(move.id).not.toBe("lead-source");
   });
 
-  it("answers a direct question even when the same turn verifies ownership", () => {
+  it.each([
+    "I just don't see this fitting how we operate.",
+    "This feels like a lot for a problem I don't think we have.",
+    "I'm not convinced this is worth changing anything for.",
+    "What am I missing here?",
+  ])("routes novel substantive context before ordinary discovery: %s", (text) => {
+    let state = newLotLiftCallState(`novel-${text}`);
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    const prospect = turn(text, `novel-turn-${text}`);
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "contextual-response", source: "approved-move" });
+    expect(move.id).not.toBe("lead-source");
+  });
+
+  it("answers a direct question after ownership is verified", () => {
     const profile = resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE);
-    const prospect = turn("I'm the owner. Why are you calling?", "owner-question");
-    const move = selectLotLiftNextMove({ state: newLotLiftCallState("owner-question"), turn: prospect, conversation: [prospect], resolvedProfile: profile });
+    let state = newLotLiftCallState("owner-question");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    const prospect = turn("Why are you calling?", "owner-question");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: profile });
 
     expect(move).toMatchObject({ id: "contextual-response", tactic_id: "contextual-answer" });
     expect(move.response).not.toMatch(/who owns|is that you/i);
+  });
+
+  it("uses the next workflow objective when a verified owner asks how to help", () => {
+    let state = newLotLiftCallState("owner-help");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("That’s me.", "owner") });
+    const prospect = turn("How can I help?", "owner-help");
+    const move = selectLotLiftNextMove({ state, turn: prospect, conversation: [prospect], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "contextual-response" });
+    expect(move.response).toContain("Which online sources generate most buyer inquiries today?");
+    expect(move.id).not.toBe("O3");
+  });
+
+  it("skips verified after-hours coverage and advances to visibility", () => {
+    let state = newLotLiftCallState("after-hours-complete");
+    state = reduceLotLiftCallState(state, { type: "capture", field: "workflow_owner", fact: verified("I handle paid inquiries.", "owner") });
+    state = reduceLotLiftCallState(state, { type: "append", field: "lead_sources", fact: verified("Cars.com", "source") });
+    state = reduceLotLiftCallState(state, { type: "capture", field: "after_hours_process", fact: verified("The BDC covers after hours.", "after-hours") });
+    const move = selectLotLiftNextMove({ state, turn: turn("Mostly Cars.com and CarGurus.", "factual"), conversation: [], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "gap-visibility", discovery_dimension: "visibility" });
+    expect(move.response).not.toMatch(/after hours/i);
+  });
+
+  it("makes a workflow check eligible after verified discovery and authority", () => {
+    let state = newLotLiftCallState("qualified-workflow");
+    for (const [field, value] of [["workflow_owner", "I handle paid inquiries."], ["lead_arrival_point", "VinSolutions"], ["after_hours_process", "The BDC covers after hours."], ["visibility_process", "We audit the inbox."], ["authority", "I decide on workflow changes."]] as const) {
+      state = reduceLotLiftCallState(state, { type: "capture", field, fact: verified(value, field) });
+    }
+    state = reduceLotLiftCallState(state, { type: "append", field: "pain_points", fact: verified("Leads can sit overnight.", "pain") });
+    const move = selectLotLiftNextMove({ state, turn: turn("Yes.", "qualified"), conversation: [], resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) });
+
+    expect(move).toMatchObject({ id: "workflow-check", stage: "meeting-invitation" });
   });
 
   it("does not restart CRM discovery after the CRM is verified", () => {

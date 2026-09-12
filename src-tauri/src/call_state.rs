@@ -6,7 +6,11 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-pub const SCHEMA_VERSION: u16 = 4;
+pub const SCHEMA_VERSION: u16 = 7;
+
+fn default_phase() -> String {
+    "GATEKEEPER".into()
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +69,8 @@ pub struct CallState {
     pub schema_version: u16,
     pub call_id: String,
     pub revision: u64,
+    #[serde(default = "default_phase")]
+    pub phase: String,
     pub dealership: FieldValue,
     pub contact_name: FieldValue,
     pub role: FieldValue,
@@ -101,6 +107,28 @@ pub struct CallState {
     pub dnc_evidence: Option<Evidence>,
     pub next_action: FieldValue,
     pub next_action_at: FieldValue,
+    #[serde(default = "FieldValue::unknown")]
+    pub selected_objection_route: FieldValue,
+    #[serde(default)]
+    pub last_discovery_dimension: Option<String>,
+    #[serde(default)]
+    pub last_move_id: Option<String>,
+    #[serde(default)]
+    pub substantive_refusal_count: u8,
+    #[serde(default)]
+    pub pending_answer: Option<PendingAnswer>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingAnswer {
+    pub rep_segment_id: String,
+    pub profile_id: String,
+    pub profile_snapshot_version: String,
+    pub move_id: String,
+    pub kind: String,
+    pub target_field: String,
+    pub created_revision: u64,
 }
 
 pub(crate) fn valid_call_id(call_id: &str) -> bool {
@@ -187,6 +215,7 @@ fn migrate_v2(state: CallStateV2) -> CallState {
         schema_version: SCHEMA_VERSION,
         call_id: state.call_id,
         revision: state.revision,
+        phase: default_phase(),
         dealership: FieldValue::unknown(),
         contact_name: FieldValue::unknown(),
         role: FieldValue::unknown(),
@@ -230,6 +259,11 @@ fn migrate_v2(state: CallStateV2) -> CallState {
         dnc_evidence: state.dnc_evidence,
         next_action: FieldValue::unknown(),
         next_action_at: FieldValue::unknown(),
+        selected_objection_route: FieldValue::unknown(),
+        last_discovery_dimension: None,
+        last_move_id: None,
+        substantive_refusal_count: 0,
+        pending_answer: None,
     }
 }
 
@@ -263,9 +297,9 @@ fn migrate_call_state(value: serde_json::Value) -> Result<CallState> {
                 serde_json::from_value(value).context("parse Call State v2")?;
             Ok(migrate_v2(state))
         }
-        Some(3) => {
+        Some(3..=6) => {
             let mut state: CallState =
-                serde_json::from_value(value).context("parse Call State v3")?;
+                serde_json::from_value(value).context("parse legacy Call State")?;
             state.schema_version = SCHEMA_VERSION;
             Ok(state)
         }
@@ -427,6 +461,7 @@ mod tests {
             schema_version: SCHEMA_VERSION,
             call_id: "call-a".into(),
             revision,
+            phase: default_phase(),
             dealership: FieldValue::unknown(),
             contact_name: FieldValue::unknown(),
             role: FieldValue::unknown(),
@@ -460,6 +495,11 @@ mod tests {
             dnc_evidence: None,
             next_action: FieldValue::unknown(),
             next_action_at: FieldValue::unknown(),
+            selected_objection_route: FieldValue::unknown(),
+            last_discovery_dimension: None,
+            last_move_id: None,
+            substantive_refusal_count: 0,
+            pending_answer: None,
         }
     }
 

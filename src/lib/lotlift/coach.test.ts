@@ -29,24 +29,28 @@ describe("LotLift Coach immediate path", () => {
     expect(getLotLiftLiveStatus()).toBe("Suggestion ready");
   });
 
-  it("assimilates a finalized actual rep question before selecting contextual response", async () => {
-    const analyzer = vi.fn(async (_input: { state: { pending_answer: unknown } }): Promise<LotLiftTurnIntelligence> => ({ event_type: "response", confidence: 1, needs_coaching: true, playbook_rule_ids: [], state_events: [], selected_move: null, move_id: null, source: "fallback" }));
+  it("persists a real rep question before assimilating the next prospect answer", async () => {
+    const analyzer = vi.fn(async (): Promise<LotLiftTurnIntelligence> => ({ event_type: "response", confidence: 1, needs_coaching: true, playbook_rule_ids: [], state_events: [], selected_move: null, move_id: null, source: "fallback" }));
+    const callStates = new LotLiftCallStateManager();
     const current = useStore.getState();
     useStore.setState({ meetingStatus: "recording", meetingId: "owner-flow", salesMetadata: { ...current.salesMetadata!, salesProfileId: "lotlift-cold-outbound", resolvedProfile: resolveSalesProfile(LOTLIFT_COLD_OUTBOUND_PROFILE) }, settings: { ...current.settings, evaluations: [] }, segments: [], findings: [], findingSolutions: {}, solutionFindingId: null });
-    cleanups.push(initLotLiftCoach(new LotLiftCallStateManager(), analyzer, "lotlift-cold-outbound"));
-    useStore.setState({ segments: [
-      { id: "rep-owner", source: "me", speaker: 1, isFinal: true, startMs: 0, endMs: 1, text: "Who handles paid online inquiry response here?" },
-      { id: "owner", source: "them", speaker: 0, isFinal: true, startMs: 2, endMs: 3, text: "Yeah, this is me." },
-    ] });
+    cleanups.push(initLotLiftCoach(callStates, analyzer, "lotlift-cold-outbound"));
+
+    useStore.setState({ segments: [{ id: "rep-owner", source: "me", speaker: 1, isFinal: true, startMs: 0, endMs: 1, text: "Who handles paid online inquiry response here?" }] });
+    await callStates.flush("owner-flow");
+    expect(callStates.stateFor("owner-flow")?.pending_answer).toMatchObject({ target_field: "workflow_owner" });
+    expect(analyzer).not.toHaveBeenCalled();
+
+    useStore.setState({ segments: [...useStore.getState().segments, { id: "owner", source: "them", speaker: 0, isFinal: true, startMs: 2, endMs: 3, text: "Yeah, that would be me." }] });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(useStore.getState().findingSolutions["lotlift-owner"]?.solution?.replies[0]?.reply).toContain("Which online sources generate most buyer inquiries");
-    const [analysisInput] = analyzer.mock.calls[0] ?? [];
-    expect(analysisInput?.state.pending_answer).toMatchObject({ target_field: "workflow_owner" });
-    useStore.setState({ segments: [...useStore.getState().segments, { id: "why", source: "them", speaker: 0, isFinal: true, startMs: 4, endMs: 5, text: "Guys, why are you calling?" }] });
+    await callStates.flush("owner-flow");
+    expect(callStates.stateFor("owner-flow")?.workflow_owner.status).toBe("verified");
+    expect(callStates.stateFor("owner-flow")?.pending_answer).toBeNull();
+    expect(useStore.getState().findingSolutions["lotlift-owner"]?.solution?.replies[0]?.reply).toContain("How are you guys handling your online leads right now, especially after hours?");
+
+    useStore.setState({ segments: [...useStore.getState().segments, { id: "why", source: "them", speaker: 0, isFinal: true, startMs: 4, endMs: 5, text: "Why are you calling?" }] });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const reply = useStore.getState().findingSolutions["lotlift-why"]?.solution?.replies[0]?.reply ?? "";
-    expect(reply).toContain("I’m calling to understand the online inquiry workflow");
-    expect(reply).not.toMatch(/is that you|who handles|who owns/i);
+    expect(useStore.getState().findings.find((finding) => finding.id === "lotlift-why")?.lotLiftRecommendation?.moveId).toBe("contextual-response");
     expect(useStore.getState().solutionFindingId).toBeNull();
   });
 

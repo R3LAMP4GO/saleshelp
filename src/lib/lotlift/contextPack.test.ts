@@ -61,7 +61,7 @@ describe("LotLift ContextPack", () => {
     expect(payload).toMatchObject({
       composition_version: 3,
       full_transcript: conversation,
-      next_unresolved_workflow_detail: "where paid online inquiries arrive",
+      next_unresolved_workflow_detail: "which sources generate paid online inquiries",
       stakeholder_context: {
         owner: [expect.objectContaining({ value: "internet manager", status: "verified" })],
         authority: [expect.objectContaining({ value: "general manager", status: "verified" })],

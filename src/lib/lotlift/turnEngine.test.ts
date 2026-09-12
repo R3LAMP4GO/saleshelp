@@ -36,6 +36,7 @@ describe("LotLift cold-call turn engine", () => {
     const state = callState();
     state.workflow_owner = { value: "That would be me.", status: "verified", evidence: { segment_id: "owner", text: "That would be me." } };
     expect(selectLotLiftColdCallCard(turn("Why are you calling?"), state, [], "Isaiah")).toBeNull();
+    expect(selectLotLiftColdCallCard(turn("How can I help?"), state, [], "Isaiah")).toBeNull();
   });
 
   it("uses the context-free permission card when configured profile facts are unavailable", () => {

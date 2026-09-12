@@ -3,7 +3,7 @@ import type { CallStateEvent, LotLiftCallState, LotLiftPendingAnswer } from "./c
 import type { ResolvedSalesProfile } from "../sales/profiles";
 import { normalizeForIntent } from "./intentNormalization";
 
-const affirmative = /^(?:oh,? )?(?:yes|yeah|yep|yeah,? (?:this|that) is me|that(?:'s| is| would be) me|i do|i handle (?:them|those)|yeah,? i handle (?:them|those)|that's my department)[.!]*$/;
+const affirmative = /^(?:oh,? )?(?:yes|yeah|yep|yeah,? (?:this|that)(?:'s| is| would be) me|that(?:'s| is| would be) me|i do|i handle (?:them|those)|yeah,? i handle (?:them|those)|that's my department)[.!]*$/;
 const negative = /^(?:no|no,? .+|our .+ (?:handles|does)|that's (?:the|our) .+(?:manager|bdc))[.!]*$/;
 
 export function pendingAnswerFromExecutedMove(profileId: string, profileSnapshotVersion: string, repSegmentId: string, move: { id: string; expectedAnswer?: { kind: "confirmation" | "free-text" | "entity"; targetField: string } }, revision: number): LotLiftPendingAnswer | null {
